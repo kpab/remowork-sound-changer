@@ -119,8 +119,8 @@
         <div class="rsc-timer-text">
           <span class="rsc-timer-label">次の撮影まで</span>
           <span class="rsc-timer-value">5:00</span>
+          <span class="rsc-countdown-badge">🔇OFF</span>
         </div>
-        <span class="rsc-countdown-badge">🔇OFF</span>
       </div>
       <div class="rsc-timer-rows">
         <div class="rsc-timer-row">
@@ -183,12 +183,12 @@
           background: rgba(255,255,255,0.1);
         }
         .rsc-countdown-badge {
-          font-size: 10px;
-          padding: 2px 6px;
-          border-radius: 4px;
+          font-size: 9px;
+          padding: 1px 5px;
+          border-radius: 3px;
           background: rgba(255,255,255,0.15);
           color: #a0aec0;
-          margin-left: 4px;
+          margin-top: 2px;
         }
         .rsc-timer-main.rsc-countdown-enabled .rsc-countdown-badge {
           background: rgba(72, 187, 120, 0.3);
