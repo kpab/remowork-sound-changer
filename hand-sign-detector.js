@@ -123,16 +123,14 @@
       </div>
       <div class="rsc-timer-rows">
         <div class="rsc-timer-row">
-          <div class="rsc-timer-buttons">
-            <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
-            <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
-            <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
-          </div>
-          <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
+          <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
+          <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
+          <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
+          <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
         </div>
         <div class="rsc-timer-row">
+          <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
           <button class="rsc-sound-btn" title="音声変更">🔊 音声変更</button>
-          <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
           <button class="rsc-record-btn" title="録音">🎙️ 録音</button>
         </div>
       </div>
@@ -175,56 +173,15 @@
         .rsc-timer-rows {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 6px;
+          margin-left: 12px;
+          padding-left: 12px;
+          border-left: 1px solid rgba(255,255,255,0.2);
         }
         .rsc-timer-row {
           display: flex;
           align-items: center;
-          gap: 8px;
-        }
-        .rsc-timer-divider {
-          width: 1px;
-          height: 28px;
-          background: rgba(255,255,255,0.2);
-        }
-        .rsc-tools-btn {
-          padding: 6px 12px;
-          border: none;
-          border-radius: 6px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: #fff;
-          font-size: 13px;
-          cursor: pointer;
-          transition: all 0.2s;
-          white-space: nowrap;
-        }
-        .rsc-tools-btn:hover {
-          transform: scale(1.05);
-          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-        }
-        .rsc-away-btn {
-          padding: 6px 10px;
-          border: none;
-          border-radius: 6px;
-          background: rgba(255,255,255,0.15);
-          color: #fff;
-          font-size: 13px;
-          cursor: pointer;
-          transition: all 0.2s;
-          white-space: nowrap;
-        }
-        .rsc-away-btn:hover {
-          background: rgba(255,255,255,0.25);
-          transform: scale(1.05);
-        }
-        .rsc-away-btn.rsc-active {
-          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-          box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
-          animation: rsc-away-pulse 2s infinite;
-        }
-        @keyframes rsc-away-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.7; }
+          gap: 6px;
         }
         #rsc-photo-timer.rsc-dragging {
           opacity: 1;
@@ -260,13 +217,6 @@
           0% { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); }
           100% { background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%); }
         }
-        .rsc-timer-buttons {
-          display: flex;
-          gap: 6px;
-          margin-left: 8px;
-          padding-left: 12px;
-          border-left: 1px solid rgba(255,255,255,0.2);
-        }
         .rsc-send-btn {
           width: 32px;
           height: 32px;
@@ -295,12 +245,37 @@
           opacity: 0.3;
           cursor: not-allowed;
         }
-        .rsc-record-btn {
+        .rsc-away-btn {
           height: 32px;
-          padding: 0 12px;
+          padding: 0 10px;
           border: none;
           border-radius: 6px;
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          background: rgba(255,255,255,0.15);
+          color: #fff;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .rsc-away-btn:hover {
+          background: rgba(255,255,255,0.25);
+          transform: scale(1.05);
+        }
+        .rsc-away-btn.rsc-active {
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+          box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+          animation: rsc-away-pulse 2s infinite;
+        }
+        @keyframes rsc-away-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        .rsc-notify-btn {
+          height: 32px;
+          padding: 0 10px;
+          border: none;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
           font-size: 13px;
           color: #fff;
           cursor: pointer;
@@ -311,13 +286,29 @@
           gap: 4px;
           white-space: nowrap;
         }
-        .rsc-record-btn:hover {
-          background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+        .rsc-notify-btn:hover {
+          background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%);
           transform: scale(1.05);
+        }
+        .rsc-tools-btn {
+          height: 32px;
+          padding: 0 10px;
+          border: none;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: #fff;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .rsc-tools-btn:hover {
+          transform: scale(1.05);
+          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
         }
         .rsc-sound-btn {
           height: 32px;
-          padding: 0 12px;
+          padding: 0 10px;
           border: none;
           border-radius: 6px;
           background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
@@ -335,12 +326,12 @@
           background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
           transform: scale(1.05);
         }
-        .rsc-notify-btn {
+        .rsc-record-btn {
           height: 32px;
-          padding: 0 12px;
+          padding: 0 10px;
           border: none;
           border-radius: 6px;
-          background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
           font-size: 13px;
           color: #fff;
           cursor: pointer;
@@ -351,8 +342,8 @@
           gap: 4px;
           white-space: nowrap;
         }
-        .rsc-notify-btn:hover {
-          background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%);
+        .rsc-record-btn:hover {
+          background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
           transform: scale(1.05);
         }
       `;
