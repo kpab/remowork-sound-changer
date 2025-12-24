@@ -126,12 +126,15 @@
           <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
           <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
           <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
-          <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
+          <div class="rsc-timer-divider"></div>
+          <button class="rsc-record-start-btn" title="録音開始">🔴 録音</button>
+          <button class="rsc-record-stop-btn" title="録音停止" style="display:none;">⏸️ 停止</button>
+          <button class="rsc-record-end-btn" title="録音終了" style="display:none;">⏹️ 終了</button>
         </div>
         <div class="rsc-timer-row">
           <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
           <button class="rsc-sound-btn" title="音声変更">🔊 音声変更</button>
-          <button class="rsc-record-btn" title="録音">🎙️ 録音</button>
+          <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
         </div>
       </div>
     `;
@@ -326,12 +329,19 @@
           background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
           transform: scale(1.05);
         }
-        .rsc-record-btn {
+        .rsc-timer-divider {
+          width: 1px;
+          height: 24px;
+          background: rgba(255,255,255,0.3);
+          margin: 0 4px;
+        }
+        .rsc-record-start-btn,
+        .rsc-record-stop-btn,
+        .rsc-record-end-btn {
           height: 32px;
           padding: 0 10px;
           border: none;
           border-radius: 6px;
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
           font-size: 13px;
           color: #fff;
           cursor: pointer;
@@ -342,8 +352,25 @@
           gap: 4px;
           white-space: nowrap;
         }
-        .rsc-record-btn:hover {
+        .rsc-record-start-btn {
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+        .rsc-record-start-btn:hover {
           background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+          transform: scale(1.05);
+        }
+        .rsc-record-stop-btn {
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+        .rsc-record-stop-btn:hover {
+          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+          transform: scale(1.05);
+        }
+        .rsc-record-end-btn {
+          background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+        }
+        .rsc-record-end-btn:hover {
+          background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
           transform: scale(1.05);
         }
       `;
@@ -375,14 +402,8 @@
       });
     }
 
-    // 録音ボタン
-    const recordBtn = timerElement.querySelector('.rsc-record-btn');
-    if (recordBtn) {
-      recordBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openToolsModal('recorder');
-      });
-    }
+    // 録音ボタン（3ボタン）
+    setupTimerRecordButtons();
 
     // 音声設定ボタン
     const soundBtn = timerElement.querySelector('.rsc-sound-btn');
@@ -426,7 +447,7 @@
    */
   function onDragStart(e) {
     // ボタンクリックは除外
-    if (e.target.closest('.rsc-send-btn') || e.target.closest('.rsc-notify-btn') || e.target.closest('.rsc-tools-btn') || e.target.closest('.rsc-away-btn') || e.target.closest('.rsc-record-btn') || e.target.closest('.rsc-sound-btn')) return;
+    if (e.target.closest('.rsc-send-btn') || e.target.closest('.rsc-notify-btn') || e.target.closest('.rsc-tools-btn') || e.target.closest('.rsc-away-btn') || e.target.closest('.rsc-record-start-btn') || e.target.closest('.rsc-record-stop-btn') || e.target.closest('.rsc-record-end-btn') || e.target.closest('.rsc-sound-btn')) return;
 
     isDragging = true;
     timerElement.classList.add('rsc-dragging');
@@ -669,9 +690,142 @@
   function setupNotifyButton() {
     const notifyBtn = timerElement.querySelector('.rsc-notify-btn');
     if (notifyBtn) {
-      notifyBtn.addEventListener('click', () => {
-        openSoundSettingsModal(true); // 通知音設定にスクロール
+      notifyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // ハンドサイン設定モーダルを開く
+        openHandSignSettingsModal();
       });
+    }
+  }
+
+  /**
+   * タイマーUIの録音ボタンをセットアップ
+   */
+  function setupTimerRecordButtons() {
+    const startBtn = timerElement.querySelector('.rsc-record-start-btn');
+    const stopBtn = timerElement.querySelector('.rsc-record-stop-btn');
+    const endBtn = timerElement.querySelector('.rsc-record-end-btn');
+
+    if (startBtn) {
+      startBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await startRecordingFromTimer();
+      });
+    }
+
+    if (stopBtn) {
+      stopBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePauseRecordingFromTimer();
+      });
+    }
+
+    if (endBtn) {
+      endBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stopRecordingFromTimer();
+      });
+    }
+  }
+
+  /**
+   * タイマーUIから録音開始
+   */
+  async function startRecordingFromTimer() {
+    try {
+      const stream = await captureAudioStream();
+
+      if (!stream) {
+        showTimerToast('音声ストリームを取得できませんでした');
+        return;
+      }
+
+      audioChunks = [];
+      recordingStartTime = Date.now();
+
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        saveRecordingData(blob);
+        // 録音終了時にモーダルを開く
+        openToolsModal('recorder');
+      };
+
+      mediaRecorder.start(1000);
+
+      // タイマーUI更新
+      updateTimerRecordButtons('recording');
+      showTimerToast('録音を開始しました');
+
+      console.log('[HandSign] Recording started from timer');
+
+    } catch (error) {
+      console.error('[HandSign] Failed to start recording:', error);
+      showTimerToast('録音を開始できませんでした');
+    }
+  }
+
+  /**
+   * タイマーUIから一時停止/再開
+   */
+  function togglePauseRecordingFromTimer() {
+    if (!mediaRecorder) return;
+
+    if (mediaRecorder.state === 'recording') {
+      mediaRecorder.pause();
+      updateTimerRecordButtons('paused');
+      showTimerToast('録音を一時停止しました');
+    } else if (mediaRecorder.state === 'paused') {
+      mediaRecorder.resume();
+      updateTimerRecordButtons('recording');
+      showTimerToast('録音を再開しました');
+    }
+  }
+
+  /**
+   * タイマーUIから録音停止
+   */
+  function stopRecordingFromTimer() {
+    if (mediaRecorder && (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused')) {
+      mediaRecorder.stop();
+      updateTimerRecordButtons('idle');
+      showTimerToast('録音を終了しました');
+    }
+  }
+
+  /**
+   * タイマーUIの録音ボタン表示更新
+   */
+  function updateTimerRecordButtons(state) {
+    const startBtn = timerElement?.querySelector('.rsc-record-start-btn');
+    const stopBtn = timerElement?.querySelector('.rsc-record-stop-btn');
+    const endBtn = timerElement?.querySelector('.rsc-record-end-btn');
+
+    if (!startBtn || !stopBtn || !endBtn) return;
+
+    if (state === 'recording') {
+      startBtn.style.display = 'none';
+      stopBtn.style.display = 'flex';
+      stopBtn.innerHTML = '⏸️ 停止';
+      endBtn.style.display = 'flex';
+    } else if (state === 'paused') {
+      startBtn.style.display = 'none';
+      stopBtn.style.display = 'flex';
+      stopBtn.innerHTML = '▶️ 再開';
+      endBtn.style.display = 'flex';
+    } else {
+      startBtn.style.display = 'flex';
+      stopBtn.style.display = 'none';
+      endBtn.style.display = 'none';
     }
   }
 
@@ -2785,6 +2939,333 @@
   function closeSoundSettingsModal() {
     if (soundSettingsModal) {
       soundSettingsModal.classList.remove('rsc-active');
+    }
+  }
+
+  // ===== ハンドサイン設定モーダル =====
+  let handSignSettingsModal = null;
+
+  /**
+   * ハンドサイン設定モーダルを作成
+   */
+  function createHandSignSettingsModal() {
+    if (handSignSettingsModal) return handSignSettingsModal;
+
+    handSignSettingsModal = document.createElement('div');
+    handSignSettingsModal.id = 'rsc-handsign-settings-modal';
+    handSignSettingsModal.innerHTML = `
+      <style>
+        #rsc-handsign-settings-modal {
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 100002;
+        }
+        #rsc-handsign-settings-modal.rsc-active {
+          display: block;
+        }
+        #rsc-handsign-settings-modal .rsc-modal-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+        }
+        #rsc-handsign-settings-modal .rsc-modal-dialog {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: #1e1e1e;
+          border-radius: 12px;
+          width: 400px;
+          max-height: 80vh;
+          overflow: hidden;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        #rsc-handsign-settings-modal .rsc-modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px;
+          border-bottom: 1px solid #333;
+        }
+        #rsc-handsign-settings-modal .rsc-modal-title {
+          font-size: 16px;
+          font-weight: 600;
+          color: #fff;
+        }
+        #rsc-handsign-settings-modal .rsc-modal-close {
+          background: none;
+          border: none;
+          color: #888;
+          font-size: 24px;
+          cursor: pointer;
+          padding: 0;
+          line-height: 1;
+        }
+        #rsc-handsign-settings-modal .rsc-modal-close:hover {
+          color: #fff;
+        }
+        #rsc-handsign-settings-modal .rsc-modal-body {
+          padding: 16px;
+          overflow-y: auto;
+          max-height: calc(80vh - 60px);
+          color: #e0e0e0;
+        }
+        .rsc-hs-section {
+          margin-bottom: 16px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid #333;
+        }
+        .rsc-hs-section:last-child {
+          border-bottom: none;
+          margin-bottom: 0;
+        }
+        .rsc-hs-label {
+          font-size: 13px;
+          font-weight: 500;
+          color: #a0a0a0;
+          margin-bottom: 8px;
+        }
+        .rsc-hs-toggle {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .rsc-hs-toggle-switch {
+          position: relative;
+          width: 44px;
+          height: 24px;
+        }
+        .rsc-hs-toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .rsc-hs-toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #555;
+          transition: 0.3s;
+          border-radius: 24px;
+        }
+        .rsc-hs-toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 18px;
+          width: 18px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: 0.3s;
+          border-radius: 50%;
+        }
+        .rsc-hs-toggle-switch input:checked + .rsc-hs-toggle-slider {
+          background-color: #4a90d9;
+        }
+        .rsc-hs-toggle-switch input:checked + .rsc-hs-toggle-slider:before {
+          transform: translateX(20px);
+        }
+        .rsc-hs-input {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid #444;
+          border-radius: 6px;
+          background: #2d2d2d;
+          color: #fff;
+          font-size: 14px;
+        }
+        .rsc-hs-input:focus {
+          outline: none;
+          border-color: #4a90d9;
+        }
+        .rsc-hs-sound-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .rsc-hs-sound-select {
+          flex: 1;
+          padding: 10px 12px;
+          border: 1px solid #444;
+          border-radius: 6px;
+          background: #2d2d2d;
+          color: #fff;
+          font-size: 14px;
+        }
+        .rsc-hs-sound-btn {
+          width: 36px;
+          height: 36px;
+          border: none;
+          border-radius: 6px;
+          background: #4a90d9;
+          color: #fff;
+          font-size: 14px;
+          cursor: pointer;
+        }
+        .rsc-hs-sound-btn:hover {
+          background: #3a7bc8;
+        }
+        .rsc-hs-test-btn {
+          width: 100%;
+          padding: 10px;
+          border: none;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+          color: #fff;
+          font-size: 14px;
+          cursor: pointer;
+          margin-top: 12px;
+        }
+        .rsc-hs-test-btn:hover {
+          background: linear-gradient(135deg, #68d391 0%, #48bb78 100%);
+        }
+      </style>
+      <div class="rsc-modal-overlay"></div>
+      <div class="rsc-modal-dialog">
+        <div class="rsc-modal-header">
+          <span class="rsc-modal-title">🔔 通知設定</span>
+          <button class="rsc-modal-close">&times;</button>
+        </div>
+        <div class="rsc-modal-body">
+          <div class="rsc-hs-section">
+            <div class="rsc-hs-label">ハンドサイン検出</div>
+            <div class="rsc-hs-toggle">
+              <label class="rsc-hs-toggle-switch">
+                <input type="checkbox" id="rsc-hs-enabled">
+                <span class="rsc-hs-toggle-slider"></span>
+              </label>
+              <span>他のメンバーの手を検出して通知</span>
+            </div>
+          </div>
+          <div class="rsc-hs-section">
+            <div class="rsc-hs-label">自分の名前（検出から除外）</div>
+            <input type="text" class="rsc-hs-input" id="rsc-hs-myname" placeholder="例: 松川 幸平">
+          </div>
+          <div class="rsc-hs-section">
+            <div class="rsc-hs-label">通知音</div>
+            <div class="rsc-hs-sound-row">
+              <select class="rsc-hs-sound-select" id="rsc-hs-sound"></select>
+              <button class="rsc-hs-sound-btn" id="rsc-hs-sound-play" title="試聴">▶</button>
+            </div>
+          </div>
+          <button class="rsc-hs-test-btn" id="rsc-hs-test">🔔 通知テスト</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(handSignSettingsModal);
+
+    // イベントハンドラ
+    handSignSettingsModal.querySelector('.rsc-modal-overlay').addEventListener('click', closeHandSignSettingsModal);
+    handSignSettingsModal.querySelector('.rsc-modal-close').addEventListener('click', closeHandSignSettingsModal);
+
+    // 有効/無効トグル
+    handSignSettingsModal.querySelector('#rsc-hs-enabled').addEventListener('change', async (e) => {
+      settings.enabled = e.target.checked;
+      await saveHandSignSettings();
+    });
+
+    // 自分の名前
+    handSignSettingsModal.querySelector('#rsc-hs-myname').addEventListener('change', async (e) => {
+      settings.myName = e.target.value;
+      await saveHandSignSettings();
+    });
+
+    // 通知音変更
+    handSignSettingsModal.querySelector('#rsc-hs-sound').addEventListener('change', async (e) => {
+      if (!settings.notifications) settings.notifications = {};
+      settings.notifications.soundPreset = e.target.value;
+      await saveHandSignSettings();
+    });
+
+    // 試聴ボタン
+    handSignSettingsModal.querySelector('#rsc-hs-sound-play').addEventListener('click', () => {
+      const soundPreset = handSignSettingsModal.querySelector('#rsc-hs-sound').value;
+      chrome.runtime.sendMessage({
+        type: 'PLAY_HAND_SIGN_SOUND',
+        preset: soundPreset
+      });
+    });
+
+    // テストボタン
+    handSignSettingsModal.querySelector('#rsc-hs-test').addEventListener('click', () => {
+      testNotification();
+    });
+
+    return handSignSettingsModal;
+  }
+
+  /**
+   * ハンドサイン設定モーダルを開く
+   */
+  async function openHandSignSettingsModal() {
+    createHandSignSettingsModal();
+    handSignSettingsModal.classList.add('rsc-active');
+
+    // 現在の設定を反映
+    handSignSettingsModal.querySelector('#rsc-hs-enabled').checked = settings.enabled || false;
+    handSignSettingsModal.querySelector('#rsc-hs-myname').value = settings.myName || '';
+
+    // 通知音のプリセットを読み込み
+    const soundSelect = handSignSettingsModal.querySelector('#rsc-hs-sound');
+    soundSelect.innerHTML = '';
+
+    try {
+      const presetsResponse = await chrome.runtime.sendMessage({ type: 'GET_PRESET_SOUNDS' });
+      if (presetsResponse && presetsResponse.success && presetsResponse.data) {
+        for (const [category, sounds] of Object.entries(presetsResponse.data)) {
+          if (Array.isArray(sounds) && sounds.length > 0) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = category;
+            sounds.forEach(sound => {
+              const option = document.createElement('option');
+              option.value = `${category}:${sound.id}`;
+              option.textContent = sound.name;
+              optgroup.appendChild(option);
+            });
+            soundSelect.appendChild(optgroup);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[HandSign] Failed to load preset sounds:', error);
+    }
+
+    // 現在の選択を反映
+    const currentSound = settings.notifications?.soundPreset || 'outgoing:outgoing_horn';
+    soundSelect.value = currentSound;
+  }
+
+  /**
+   * ハンドサイン設定モーダルを閉じる
+   */
+  function closeHandSignSettingsModal() {
+    if (handSignSettingsModal) {
+      handSignSettingsModal.classList.remove('rsc-active');
+    }
+  }
+
+  /**
+   * ハンドサイン設定を保存
+   */
+  async function saveHandSignSettings() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'SAVE_HAND_SIGN_SETTINGS',
+        settings: settings
+      });
+    } catch (error) {
+      console.error('[HandSign] Failed to save settings:', error);
     }
   }
 
