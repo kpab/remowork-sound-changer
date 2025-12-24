@@ -2381,7 +2381,11 @@
 
     try {
       cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' }
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       });
       video.srcObject = cameraStream;
       buttons.forEach(btn => btn.disabled = false);
@@ -2407,6 +2411,10 @@
    */
   async function updateImageCounts() {
     if (!toolsModal) return;
+    if (!isExtensionContextValid()) {
+      console.warn('[HandSign] Extension context invalidated');
+      return;
+    }
     const result = await chrome.storage.local.get('virtualCameraImages');
     const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
 
@@ -2457,6 +2465,10 @@
    * 画像を削除
    */
   async function deleteImage(type, index) {
+    if (!isExtensionContextValid()) {
+      alert('拡張機能が更新されました。ページをリロードしてください。');
+      return;
+    }
     const result = await chrome.storage.local.get('virtualCameraImages');
     const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
 
@@ -2490,6 +2502,10 @@
    * 画像を全削除
    */
   async function deleteAllImages(type) {
+    if (!isExtensionContextValid()) {
+      alert('拡張機能が更新されました。ページをリロードしてください。');
+      return;
+    }
     const result = await chrome.storage.local.get('virtualCameraImages');
     const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
 
@@ -2556,6 +2572,14 @@
    * モーダルの高さを復元
    */
   function restoreModalHeight() {
+    if (!isExtensionContextValid()) {
+      // デフォルト高さを設定
+      const dialog = toolsModal?.querySelector('.rsc-modal-dialog');
+      if (dialog) {
+        dialog.style.height = '50vh';
+      }
+      return;
+    }
     chrome.storage.local.get(['modalHeight'], (result) => {
       if (result.modalHeight) {
         const dialog = toolsModal?.querySelector('.rsc-modal-dialog');
@@ -2733,6 +2757,12 @@
 
     // ストレージに保存
     try {
+      if (!isExtensionContextValid()) {
+        status.textContent = '拡張機能が更新されました。ページをリロードしてください';
+        status.className = 'rsc-camera-status rsc-error';
+        return;
+      }
+
       const result = await chrome.storage.local.get('virtualCameraImages');
       const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
 
@@ -2760,15 +2790,21 @@
       console.log('[HandSign] Sent LOAD_IMAGES to virtual-camera.js');
 
       // 成功をポップアップに通知
-      chrome.runtime.sendMessage({
-        type: 'CAMERA_CAPTURE_SUCCESS',
-        imageType: type,
-        count: images[type].length
-      }).catch(() => {});
+      if (isExtensionContextValid()) {
+        chrome.runtime.sendMessage({
+          type: 'CAMERA_CAPTURE_SUCCESS',
+          imageType: type,
+          count: images[type].length
+        }).catch(() => {});
+      }
 
     } catch (error) {
       console.error('[HandSign] Failed to save image:', error);
-      status.textContent = '保存に失敗しました';
+      if (error.message.includes('Extension context invalidated')) {
+        status.textContent = '拡張機能が更新されました。ページをリロードしてください';
+      } else {
+        status.textContent = '保存に失敗しました';
+      }
       status.className = 'rsc-camera-status rsc-error';
     }
   }
