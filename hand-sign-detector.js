@@ -824,7 +824,9 @@
 
       // タイマーUI更新
       updateTimerRecordButtons('recording');
-      showTimerToast('録音を開始しました');
+
+      // 録音画面を開く
+      openToolsModal('recorder');
 
       console.log('[HandSign] Recording started from timer');
 
