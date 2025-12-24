@@ -16,6 +16,7 @@
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="sound">🔊 音声設定</button>
       <button class="tab-btn" data-tab="handsign">👋 ハンドサイン</button>
+      <button class="tab-btn hidden-tab" data-tab="virtual-camera">📷</button>
     </nav>
 
     <!-- 音声設定タブ -->
@@ -113,8 +114,63 @@
       </section>
     </div>
 
+    <!-- 隠しモード: 仮想カメラ設定タブ -->
+    <div class="tab-content" id="tab-virtual-camera">
+      <div class="tab-header">
+        <span>📷 仮想カメラ</span>
+      </div>
+
+      <section class="handsign-section">
+        <label class="section-label">ハンドサイン画像を撮影・登録（各12枚まで）</label>
+        <p class="note" style="margin-bottom: 12px;">撮影ごとにランダムで使用されます！</p>
+
+        <div class="camera-preview-container">
+          <video id="camera-preview" autoplay playsinline muted></video>
+          <canvas id="camera-canvas" style="display: none;"></canvas>
+        </div>
+
+        <div class="camera-controls">
+          <button class="btn btn-camera-action" id="start-camera-btn">📷 カメラ起動</button>
+          <button class="btn btn-camera-action" id="capture-wave-btn" disabled>👋 撮影</button>
+          <button class="btn btn-camera-action" id="capture-thumbsup-btn" disabled>👍 撮影</button>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">👋 登録済み画像 (<span id="wave-count">0</span>/12)</label>
+        <div class="registered-images-grid" id="wave-images-grid">
+          <!-- 動的に生成 -->
+        </div>
+        <div class="image-grid-buttons">
+          <button class="btn btn-default-images" id="default-wave-btn">デフォルト画像をセット</button>
+          <button class="btn btn-danger btn-clear-all" id="clear-wave-btn" style="display: none;">全て削除</button>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">👍 登録済み画像 (<span id="thumbsup-count">0</span>/12)</label>
+        <div class="registered-images-grid" id="thumbsup-images-grid">
+          <!-- 動的に生成 -->
+        </div>
+        <div class="image-grid-buttons">
+          <button class="btn btn-default-images" id="default-thumbsup-btn">デフォルト画像をセット</button>
+          <button class="btn btn-danger btn-clear-all" id="clear-thumbsup-btn" style="display: none;">全て削除</button>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">使い方</label>
+        <div class="usage-info">
+          <p>1. カメラを起動して、ハンドサインのポーズを撮影</p>
+          <p>2. 複数枚登録すると、送信時にランダムで選択</p>
+          <p>3. Remoworkページのタイマー横のボタンで送信</p>
+          <p>4. 写真が撮られたら自動で通常カメラに戻ります</p>
+        </div>
+      </section>
+    </div>
+
     <footer class="footer">
-      <p class="version">v1.1.0</p>
+      <p class="version">v1.2.0</p>
     </footer>
   </div>
 

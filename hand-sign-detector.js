@@ -101,6 +101,10 @@
         <span class="rsc-timer-label">次の撮影まで</span>
         <span class="rsc-timer-value">5:00</span>
       </div>
+      <div class="rsc-timer-buttons">
+        <button class="rsc-send-btn" data-type="wave" title="👋を送信">👋</button>
+        <button class="rsc-send-btn" data-type="thumbsup" title="👍を送信">👍</button>
+      </div>
     `;
 
     document.body.appendChild(timerElement);
@@ -161,9 +165,167 @@
           0% { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); }
           100% { background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%); }
         }
+        .rsc-timer-buttons {
+          display: flex;
+          gap: 6px;
+          margin-left: 8px;
+          padding-left: 12px;
+          border-left: 1px solid rgba(255,255,255,0.2);
+        }
+        .rsc-send-btn {
+          width: 32px;
+          height: 32px;
+          border: none;
+          border-radius: 6px;
+          background: rgba(255,255,255,0.15);
+          font-size: 16px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .rsc-send-btn:hover {
+          background: rgba(255,255,255,0.25);
+          transform: scale(1.1);
+        }
+        .rsc-send-btn:active {
+          transform: scale(0.95);
+        }
+        .rsc-send-btn.rsc-active {
+          background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+          box-shadow: 0 0 8px rgba(72, 187, 120, 0.5);
+        }
+        .rsc-send-btn:disabled {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
       `;
       document.head.appendChild(style);
     }
+
+    // ボタンのクリックハンドラー
+    setupSendButtons();
+  }
+
+  // 現在有効なハンドサインタイプ
+  let activeHandSignType = null;
+
+  /**
+   * 送信ボタンのセットアップ
+   */
+  function setupSendButtons() {
+    const buttons = timerElement.querySelectorAll('.rsc-send-btn');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.type;
+        toggleHandSignSend(type, btn);
+      });
+    });
+  }
+
+  /**
+   * ハンドサイン送信をトグル
+   */
+  async function toggleHandSignSend(type, btn) {
+    // 画像が登録されているかチェック（配列形式）
+    const images = await getVirtualCameraImages();
+    const imageArray = images?.[type];
+    if (!imageArray || !Array.isArray(imageArray) || imageArray.length === 0) {
+      showTimerToast('画像が未登録です。設定画面で撮影してください。');
+      return;
+    }
+
+    if (activeHandSignType === type) {
+      // 無効化
+      activeHandSignType = null;
+      btn.classList.remove('rsc-active');
+      disableVirtualCamera();
+      showTimerToast('通常カメラに戻りました');
+    } else {
+      // 有効化
+      // 他のボタンをリセット
+      timerElement.querySelectorAll('.rsc-send-btn').forEach(b => b.classList.remove('rsc-active'));
+      activeHandSignType = type;
+      btn.classList.add('rsc-active');
+      enableVirtualCamera(type);
+      const emoji = type === 'wave' ? '👋' : '👍';
+      showTimerToast(`${emoji} 次の撮影でランダム送信（${imageArray.length}枚）`);
+    }
+  }
+
+  /**
+   * 仮想カメラ画像をストレージから取得
+   */
+  async function getVirtualCameraImages() {
+    return new Promise(resolve => {
+      chrome.storage.local.get(['virtualCameraImages'], result => {
+        resolve(result.virtualCameraImages || {});
+      });
+    });
+  }
+
+  /**
+   * 仮想カメラを有効化（ページに通知）
+   */
+  function enableVirtualCamera(type) {
+    window.postMessage({
+      source: 'remowork-virtual-camera',
+      type: 'ENABLE_VIRTUAL_CAMERA',
+      payload: { imageType: type }
+    }, '*');
+  }
+
+  /**
+   * 仮想カメラを無効化
+   */
+  function disableVirtualCamera() {
+    window.postMessage({
+      source: 'remowork-virtual-camera',
+      type: 'DISABLE_VIRTUAL_CAMERA',
+      payload: {}
+    }, '*');
+  }
+
+  /**
+   * タイマー横にトースト表示
+   */
+  function showTimerToast(message) {
+    const existing = document.querySelector('.rsc-timer-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'rsc-timer-toast';
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 70px;
+      left: 20px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 100001;
+      animation: rsc-toast-fade 2s ease-out forwards;
+    `;
+
+    if (!document.getElementById('rsc-toast-styles')) {
+      const style = document.createElement('style');
+      style.id = 'rsc-toast-styles';
+      style.textContent = `
+        @keyframes rsc-toast-fade {
+          0% { opacity: 0; transform: translateY(10px); }
+          15% { opacity: 1; transform: translateY(0); }
+          85% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
   }
 
   /**
@@ -201,6 +363,15 @@
       timerElement.classList.remove('rsc-timer-flash');
       void timerElement.offsetWidth; // リフロー強制
       timerElement.classList.add('rsc-timer-flash');
+    }
+
+    // ハンドサイン送信後は自動で通常カメラに戻す
+    if (activeHandSignType) {
+      const emoji = activeHandSignType === 'wave' ? '👋' : '👍';
+      showTimerToast(`${emoji} 送信完了！通常カメラに戻りました`);
+      activeHandSignType = null;
+      timerElement.querySelectorAll('.rsc-send-btn').forEach(b => b.classList.remove('rsc-active'));
+      disableVirtualCamera();
     }
 
     console.log('[HandSign] Timer reset to 5 minutes');

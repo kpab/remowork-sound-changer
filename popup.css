@@ -468,3 +468,160 @@ input:checked + .slider:before {
   font-size: 13px;
   color: var(--text-color);
 }
+
+/* Virtual Camera Section */
+.camera-preview-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background-color: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+#camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* ミラー表示 */
+}
+
+.camera-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.btn-camera-action {
+  width: auto;
+  padding: 10px 16px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+.btn-camera-action:disabled {
+  background-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+/* Registered Images Grid */
+.registered-images-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.registered-image-item {
+  position: relative;
+  aspect-ratio: 4/3;
+  background-color: var(--bg-color);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid var(--border-color);
+}
+
+.registered-image-item.has-image {
+  border-color: var(--success-color);
+}
+
+.registered-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.registered-image-item .delete-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(244, 67, 54, 0.9);
+  color: white;
+  font-size: 10px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.registered-image-item.has-image .delete-btn {
+  display: flex;
+}
+
+.registered-image-item .slot-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: bold;
+}
+
+.registered-image-item.has-image .slot-number {
+  display: none;
+}
+
+.btn-small {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  padding: 0;
+}
+
+.btn-danger {
+  background-color: var(--danger-color);
+}
+
+.btn-danger:hover {
+  background-color: #d32f2f;
+}
+
+.image-grid-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-clear-all {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.btn-default-images {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+  background-color: var(--primary-color);
+}
+
+/* Usage Info */
+.usage-info {
+  padding: 12px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.usage-info p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.usage-info p:last-child {
+  margin-bottom: 0;
+}
+
+/* Hidden mode tab (starts hidden) */
+.tab-btn.hidden-tab {
+  display: none;
+}
+
+.tab-btn.hidden-tab.revealed {
+  display: flex;
+}

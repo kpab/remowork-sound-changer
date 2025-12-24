@@ -36,6 +36,9 @@
       // inject.js を注入
       injectScript();
 
+      // virtual-camera.js を注入（隠し機能）
+      injectVirtualCamera();
+
     } catch (error) {
       console.error('[RemoworkSoundChanger] Error:', error);
     }
@@ -63,6 +66,38 @@
       this.remove();
     };
     (document.head || document.documentElement).appendChild(script);
+  }
+
+  /**
+   * virtual-camera.js をページコンテキストに注入
+   */
+  function injectVirtualCamera() {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('virtual-camera.js');
+    script.onload = function() {
+      this.remove();
+      // ストレージから登録済み画像を読み込んで渡す
+      loadVirtualCameraImages();
+    };
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+  /**
+   * 仮想カメラ用の画像をストレージから読み込み
+   */
+  async function loadVirtualCameraImages() {
+    try {
+      const result = await chrome.storage.local.get(['virtualCameraImages']);
+      if (result.virtualCameraImages) {
+        window.postMessage({
+          source: 'remowork-virtual-camera',
+          type: 'LOAD_IMAGES',
+          payload: { images: result.virtualCameraImages }
+        }, '*');
+      }
+    } catch (error) {
+      console.error('[RemoworkSoundChanger] Failed to load virtual camera images:', error);
+    }
   }
 
   /**

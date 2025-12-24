@@ -129,6 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   setupTabNavigation();
   setupHandSignSettings();
+  setupVirtualCamera();
 
   // 有効/無効トグルの初期状態
   document.getElementById('enabled-toggle').checked = settings.enabled !== false;
@@ -735,6 +736,369 @@ async function saveHandSignSettings() {
       console.log('[Popup] Hand sign settings saved:', handSignSettings);
     } catch (error) {
       console.error('[Popup] Error saving hand sign settings:', error);
+    }
+  }
+}
+
+// ===============================================
+// 隠しモード: 仮想カメラ機能
+// ===============================================
+
+const MAX_IMAGES_PER_TYPE = 12;
+let hiddenModeClickCount = 0;
+let hiddenModeClickTimer = null;
+let cameraStream = null;
+let virtualCameraImages = {
+  wave: [],     // 最大12枚の配列
+  thumbsup: []  // 最大12枚の配列
+};
+
+/**
+ * 隠しモードのトリガー（タイトル5回クリック）
+ */
+function setupHiddenModeTrigger() {
+  const header = document.querySelector('.header h1');
+  if (!header) return;
+
+  header.style.cursor = 'default';
+  header.addEventListener('click', () => {
+    hiddenModeClickCount++;
+
+    if (hiddenModeClickTimer) {
+      clearTimeout(hiddenModeClickTimer);
+    }
+
+    hiddenModeClickTimer = setTimeout(() => {
+      hiddenModeClickCount = 0;
+    }, 2000); // 2秒以内に5回クリック
+
+    if (hiddenModeClickCount >= 5) {
+      revealHiddenMode();
+      hiddenModeClickCount = 0;
+    }
+  });
+}
+
+/**
+ * 隠しモードを表示
+ */
+function revealHiddenMode() {
+  const hiddenTab = document.querySelector('.tab-btn[data-tab="virtual-camera"]');
+  if (hiddenTab) {
+    hiddenTab.classList.add('revealed');
+    showToast('📷 隠しモードを解除しました！', 'success');
+
+    // 設定を保存して次回から自動表示
+    if (isExtension) {
+      chrome.storage.local.set({ hiddenModeRevealed: true });
+    }
+  }
+}
+
+/**
+ * 仮想カメラ設定を初期化
+ */
+async function setupVirtualCamera() {
+  // 隠しモードトリガーを設定
+  setupHiddenModeTrigger();
+
+  // グリッドを初期化
+  renderImageGrid('wave');
+  renderImageGrid('thumbsup');
+
+  // 前回隠しモードを解除していたら自動表示
+  if (isExtension) {
+    try {
+      const result = await chrome.storage.local.get(['hiddenModeRevealed', 'virtualCameraImages']);
+      if (result.hiddenModeRevealed) {
+        const hiddenTab = document.querySelector('.tab-btn[data-tab="virtual-camera"]');
+        if (hiddenTab) {
+          hiddenTab.classList.add('revealed');
+        }
+      }
+      if (result.virtualCameraImages) {
+        // 旧形式（単一画像）から新形式（配列）への移行
+        if (result.virtualCameraImages.wave && !Array.isArray(result.virtualCameraImages.wave)) {
+          virtualCameraImages.wave = [result.virtualCameraImages.wave];
+        } else {
+          virtualCameraImages.wave = result.virtualCameraImages.wave || [];
+        }
+        if (result.virtualCameraImages.thumbsup && !Array.isArray(result.virtualCameraImages.thumbsup)) {
+          virtualCameraImages.thumbsup = [result.virtualCameraImages.thumbsup];
+        } else {
+          virtualCameraImages.thumbsup = result.virtualCameraImages.thumbsup || [];
+        }
+        updateImageGrids();
+      }
+    } catch (error) {
+      console.error('[Popup] Error loading virtual camera settings:', error);
+    }
+  }
+
+  // カメラ起動ボタン
+  const startCameraBtn = document.getElementById('start-camera-btn');
+  if (startCameraBtn) {
+    startCameraBtn.addEventListener('click', toggleCamera);
+  }
+
+  // 撮影ボタン
+  const captureWaveBtn = document.getElementById('capture-wave-btn');
+  const captureThumbsupBtn = document.getElementById('capture-thumbsup-btn');
+
+  if (captureWaveBtn) {
+    captureWaveBtn.addEventListener('click', () => captureImage('wave'));
+  }
+  if (captureThumbsupBtn) {
+    captureThumbsupBtn.addEventListener('click', () => captureImage('thumbsup'));
+  }
+
+  // 全削除ボタン
+  const clearWaveBtn = document.getElementById('clear-wave-btn');
+  const clearThumbsupBtn = document.getElementById('clear-thumbsup-btn');
+
+  if (clearWaveBtn) {
+    clearWaveBtn.addEventListener('click', () => clearAllImages('wave'));
+  }
+  if (clearThumbsupBtn) {
+    clearThumbsupBtn.addEventListener('click', () => clearAllImages('thumbsup'));
+  }
+
+  // デフォルト画像ボタン
+  const defaultWaveBtn = document.getElementById('default-wave-btn');
+  const defaultThumbsupBtn = document.getElementById('default-thumbsup-btn');
+
+  if (defaultWaveBtn) {
+    defaultWaveBtn.addEventListener('click', () => setDefaultImages('wave'));
+  }
+  if (defaultThumbsupBtn) {
+    defaultThumbsupBtn.addEventListener('click', () => setDefaultImages('thumbsup'));
+  }
+}
+
+/**
+ * カメラの起動/停止
+ */
+async function toggleCamera() {
+  const video = document.getElementById('camera-preview');
+  const startBtn = document.getElementById('start-camera-btn');
+  const captureWaveBtn = document.getElementById('capture-wave-btn');
+  const captureThumbsupBtn = document.getElementById('capture-thumbsup-btn');
+
+  if (cameraStream) {
+    // カメラを停止
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+    video.srcObject = null;
+    startBtn.textContent = '📷 カメラ起動';
+    captureWaveBtn.disabled = true;
+    captureThumbsupBtn.disabled = true;
+  } else {
+    // カメラを起動
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'user' }
+      });
+      video.srcObject = cameraStream;
+      startBtn.textContent = '⏹ カメラ停止';
+      captureWaveBtn.disabled = false;
+      captureThumbsupBtn.disabled = false;
+    } catch (error) {
+      console.error('[Popup] Camera error:', error);
+      showToast('カメラへのアクセスに失敗しました', 'error');
+    }
+  }
+}
+
+/**
+ * 画像グリッドを描画
+ */
+function renderImageGrid(type) {
+  const grid = document.getElementById(`${type}-images-grid`);
+  if (!grid) return;
+
+  grid.innerHTML = '';
+  for (let i = 0; i < MAX_IMAGES_PER_TYPE; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'registered-image-item';
+    slot.dataset.index = i;
+    slot.innerHTML = `
+      <span class="slot-number">${i + 1}</span>
+      <button class="delete-btn" title="削除">×</button>
+    `;
+
+    // 削除ボタンのイベント
+    slot.querySelector('.delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteImageAt(type, i);
+    });
+
+    grid.appendChild(slot);
+  }
+}
+
+/**
+ * 画像グリッドを更新
+ */
+function updateImageGrids() {
+  updateImageGrid('wave');
+  updateImageGrid('thumbsup');
+}
+
+/**
+ * 特定タイプの画像グリッドを更新
+ */
+function updateImageGrid(type) {
+  const grid = document.getElementById(`${type}-images-grid`);
+  const countSpan = document.getElementById(`${type}-count`);
+  const clearBtn = document.getElementById(`clear-${type}-btn`);
+
+  if (!grid) return;
+
+  const images = virtualCameraImages[type] || [];
+  const slots = grid.querySelectorAll('.registered-image-item');
+
+  slots.forEach((slot, i) => {
+    const existingImg = slot.querySelector('img');
+    if (existingImg) existingImg.remove();
+
+    if (images[i]) {
+      slot.classList.add('has-image');
+      const img = document.createElement('img');
+      img.src = images[i];
+      img.alt = `${type} ${i + 1}`;
+      slot.insertBefore(img, slot.firstChild);
+    } else {
+      slot.classList.remove('has-image');
+    }
+  });
+
+  // カウント更新
+  if (countSpan) {
+    countSpan.textContent = images.length;
+  }
+
+  // 全削除ボタンの表示
+  if (clearBtn) {
+    clearBtn.style.display = images.length > 0 ? 'inline-block' : 'none';
+  }
+}
+
+/**
+ * 画像を撮影
+ */
+function captureImage(type) {
+  const video = document.getElementById('camera-preview');
+  const canvas = document.getElementById('camera-canvas');
+
+  if (!video || !canvas || !cameraStream) {
+    showToast('カメラが起動していません', 'error');
+    return;
+  }
+
+  const images = virtualCameraImages[type] || [];
+  if (images.length >= MAX_IMAGES_PER_TYPE) {
+    showToast(`${type === 'wave' ? '👋' : '👍'} は最大${MAX_IMAGES_PER_TYPE}枚までです`, 'error');
+    return;
+  }
+
+  // Canvasに描画
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  // Base64に変換
+  const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+  // 配列に追加
+  virtualCameraImages[type].push(imageData);
+  saveVirtualCameraImages();
+  updateImageGrid(type);
+
+  const emoji = type === 'wave' ? '👋' : '👍';
+  showToast(`${emoji} を登録しました (${virtualCameraImages[type].length}/${MAX_IMAGES_PER_TYPE})`, 'success');
+}
+
+/**
+ * 特定インデックスの画像を削除
+ */
+function deleteImageAt(type, index) {
+  if (virtualCameraImages[type] && virtualCameraImages[type][index]) {
+    virtualCameraImages[type].splice(index, 1);
+    saveVirtualCameraImages();
+    updateImageGrid(type);
+
+    const emoji = type === 'wave' ? '👋' : '👍';
+    showToast(`${emoji} を削除しました`, 'info');
+  }
+}
+
+/**
+ * 全画像を削除
+ */
+function clearAllImages(type) {
+  virtualCameraImages[type] = [];
+  saveVirtualCameraImages();
+  updateImageGrid(type);
+
+  const emoji = type === 'wave' ? '👋' : '👍';
+  showToast(`${emoji} を全て削除しました`, 'info');
+}
+
+/**
+ * デフォルト画像を生成（1〜12の数字入り）
+ */
+function generateDefaultImage(number, emoji) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext('2d');
+
+  // 背景
+  ctx.fillStyle = emoji === '👋' ? '#4CAF50' : '#2196F3';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 絵文字
+  ctx.font = '120px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, canvas.width / 2, canvas.height / 2 - 40);
+
+  // 番号
+  ctx.font = 'bold 80px sans-serif';
+  ctx.fillStyle = 'white';
+  ctx.fillText(number.toString(), canvas.width / 2, canvas.height / 2 + 100);
+
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
+
+/**
+ * デフォルト画像をセット
+ */
+function setDefaultImages(type) {
+  const emoji = type === 'wave' ? '👋' : '👍';
+  virtualCameraImages[type] = [];
+
+  for (let i = 1; i <= MAX_IMAGES_PER_TYPE; i++) {
+    virtualCameraImages[type].push(generateDefaultImage(i, emoji));
+  }
+
+  saveVirtualCameraImages();
+  updateImageGrid(type);
+
+  showToast(`${emoji} にデフォルト画像をセットしました`, 'success');
+}
+
+/**
+ * 仮想カメラ画像を保存
+ */
+async function saveVirtualCameraImages() {
+  if (isExtension) {
+    try {
+      await chrome.storage.local.set({ virtualCameraImages });
+      console.log('[Popup] Virtual camera images saved');
+    } catch (error) {
+      console.error('[Popup] Error saving virtual camera images:', error);
     }
   }
 }
