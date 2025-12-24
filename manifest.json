@@ -44,6 +44,14 @@
       "js": ["recorder.js"],
       "css": ["recorder.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://stage.remowork.biz/*",
+        "https://remowork.biz/*"
+      ],
+      "js": ["hand-sign-detector.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [

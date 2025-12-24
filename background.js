@@ -281,6 +281,19 @@ async function handleMessage(message) {
       const config = await getSoundConfig();
       return { success: true, data: config };
 
+    case 'PLAY_HAND_SIGN_SOUND':
+      // ハンドサイン通知音を再生
+      await playHandSignSound(message.preset);
+      return { success: true };
+
+    case 'GET_HAND_SIGN_SETTINGS':
+      const handSignSettings = await getHandSignSettings();
+      return { success: true, data: handSignSettings };
+
+    case 'SAVE_HAND_SIGN_SETTINGS':
+      await saveHandSignSettings(message.settings);
+      return { success: true };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -338,6 +351,64 @@ async function getSoundConfig() {
   }
 
   return config;
+}
+
+/**
+ * ハンドサイン設定を取得
+ */
+async function getHandSignSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['handSignSettings'], (result) => {
+      resolve(result.handSignSettings || {
+        enabled: true,
+        myName: '',
+        detectAll: true,
+        targetMembers: [],
+        notifications: {
+          toast: true,
+          sound: true,
+          soundPreset: 'doorchime'
+        }
+      });
+    });
+  });
+}
+
+/**
+ * ハンドサイン設定を保存
+ */
+async function saveHandSignSettings(settings) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ handSignSettings: settings }, resolve);
+  });
+}
+
+/**
+ * ハンドサイン通知音を再生
+ */
+async function playHandSignSound(presetType) {
+  try {
+    const handSignSettings = await getHandSignSettings();
+    const soundType = handSignSettings.notifications?.soundPreset || presetType || 'doorchime';
+
+    // プリセット音声からランダムに選択
+    const presets = PRESET_SOUNDS[soundType];
+    if (!presets || presets.length === 0) return;
+
+    const preset = presets[Math.floor(Math.random() * presets.length)];
+    const soundUrl = chrome.runtime.getURL(`sounds/${soundType}/${preset.file}`);
+
+    // アクティブなタブで音声を再生
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length > 0) {
+      chrome.tabs.sendMessage(tabs[0].id, {
+        type: 'PLAY_NOTIFICATION_SOUND',
+        url: soundUrl
+      });
+    }
+  } catch (error) {
+    console.error('Failed to play hand sign sound:', error);
+  }
 }
 
 // 拡張機能インストール時

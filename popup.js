@@ -46,6 +46,19 @@ let savedSounds = [];
 let previewAudio = null;
 let currentPlayingId = null;
 
+// ハンドサイン設定
+let handSignSettings = {
+  enabled: true,
+  myName: '',
+  detectAll: true,
+  targetMembers: [],
+  notifications: {
+    toast: true,
+    sound: true,
+    soundPreset: 'doorchime'
+  }
+};
+
 /**
  * 初期化
  */
@@ -98,9 +111,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('[Popup] soundTypes:', soundTypes);
   console.log('[Popup] settings:', settings);
 
+  // ハンドサイン設定を読み込む
+  if (isExtension) {
+    try {
+      const handSignResponse = await sendMessage({ type: 'GET_HAND_SIGN_SETTINGS' });
+      console.log('[Popup] handSignResponse:', handSignResponse);
+      if (handSignResponse && handSignResponse.success && handSignResponse.data) {
+        handSignSettings = { ...handSignSettings, ...handSignResponse.data };
+      }
+    } catch (error) {
+      console.error('[Popup] Error loading hand sign settings:', error);
+    }
+  }
+
   // UIを構築
   renderSoundList();
   setupEventListeners();
+  setupTabNavigation();
+  setupHandSignSettings();
 
   // 有効/無効トグルの初期状態
   document.getElementById('enabled-toggle').checked = settings.enabled !== false;
@@ -569,4 +597,144 @@ function showToast(message, type = 'info') {
   setTimeout(() => {
     toast.remove();
   }, 3000);
+}
+
+/**
+ * タブナビゲーションを設定
+ */
+function setupTabNavigation() {
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.dataset.tab;
+
+      // ボタンのアクティブ状態を更新
+      tabButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // コンテンツの表示を切り替え
+      tabContents.forEach(content => {
+        if (content.id === `tab-${tabId}`) {
+          content.classList.add('active');
+        } else {
+          content.classList.remove('active');
+        }
+      });
+    });
+  });
+}
+
+/**
+ * ハンドサイン設定を初期化
+ */
+function setupHandSignSettings() {
+  // 有効/無効トグル
+  const enabledToggle = document.getElementById('handsign-enabled-toggle');
+  if (enabledToggle) {
+    enabledToggle.checked = handSignSettings.enabled !== false;
+    enabledToggle.addEventListener('change', async (e) => {
+      handSignSettings.enabled = e.target.checked;
+      await saveHandSignSettings();
+      showToast(handSignSettings.enabled ? 'ハンドサイン検出を有効化しました' : 'ハンドサイン検出を無効化しました');
+    });
+  }
+
+  // 自分の名前
+  const myNameInput = document.getElementById('handsign-myname');
+  if (myNameInput) {
+    myNameInput.value = handSignSettings.myName || '';
+    myNameInput.addEventListener('blur', async () => {
+      handSignSettings.myName = myNameInput.value.trim();
+      await saveHandSignSettings();
+    });
+  }
+
+  // 検出対象（全員/選択）
+  const detectTargetRadios = document.querySelectorAll('input[name="detect-target"]');
+  detectTargetRadios.forEach(radio => {
+    if (radio.value === 'all') {
+      radio.checked = handSignSettings.detectAll !== false;
+    } else {
+      radio.checked = handSignSettings.detectAll === false;
+    }
+
+    radio.addEventListener('change', async () => {
+      handSignSettings.detectAll = document.querySelector('input[name="detect-target"]:checked').value === 'all';
+      const memberList = document.getElementById('member-list');
+      if (memberList) {
+        memberList.style.display = handSignSettings.detectAll ? 'none' : 'block';
+      }
+      await saveHandSignSettings();
+    });
+  });
+
+  // メンバーリストの表示/非表示
+  const memberList = document.getElementById('member-list');
+  if (memberList) {
+    memberList.style.display = handSignSettings.detectAll ? 'none' : 'block';
+  }
+
+  // トースト通知
+  const toastCheckbox = document.getElementById('handsign-toast');
+  if (toastCheckbox) {
+    toastCheckbox.checked = handSignSettings.notifications?.toast !== false;
+    toastCheckbox.addEventListener('change', async () => {
+      handSignSettings.notifications = handSignSettings.notifications || {};
+      handSignSettings.notifications.toast = toastCheckbox.checked;
+      await saveHandSignSettings();
+    });
+  }
+
+  // 通知音
+  const soundCheckbox = document.getElementById('handsign-sound');
+  if (soundCheckbox) {
+    soundCheckbox.checked = handSignSettings.notifications?.sound !== false;
+    soundCheckbox.addEventListener('change', async () => {
+      handSignSettings.notifications = handSignSettings.notifications || {};
+      handSignSettings.notifications.sound = soundCheckbox.checked;
+      await saveHandSignSettings();
+    });
+  }
+
+  // 通知音プリセット
+  const soundPresetSelect = document.getElementById('handsign-sound-preset');
+  if (soundPresetSelect) {
+    soundPresetSelect.value = handSignSettings.notifications?.soundPreset || 'doorchime';
+    soundPresetSelect.addEventListener('change', async () => {
+      handSignSettings.notifications = handSignSettings.notifications || {};
+      handSignSettings.notifications.soundPreset = soundPresetSelect.value;
+      await saveHandSignSettings();
+    });
+  }
+
+  // テスト再生ボタン
+  const testSoundBtn = document.getElementById('test-handsign-sound');
+  if (testSoundBtn) {
+    testSoundBtn.addEventListener('click', async () => {
+      const preset = handSignSettings.notifications?.soundPreset || 'doorchime';
+
+      if (isExtension) {
+        await sendMessage({ type: 'PLAY_HAND_SIGN_SOUND', preset });
+        showToast('テスト再生中', 'info');
+      } else {
+        showToast('デモモードでは再生できません');
+      }
+    });
+  }
+}
+
+/**
+ * ハンドサイン設定を保存
+ */
+async function saveHandSignSettings() {
+  if (isExtension) {
+    try {
+      await sendMessage({ type: 'SAVE_HAND_SIGN_SETTINGS', settings: handSignSettings });
+      console.log('[Popup] Hand sign settings saved:', handSignSettings);
+    } catch (error) {
+      console.error('[Popup] Error saving hand sign settings:', error);
+    }
+  }
 }

@@ -10,26 +10,111 @@
   <div class="container">
     <header class="header">
       <h1>Remowork Sound Changer</h1>
-      <label class="toggle-switch">
-        <input type="checkbox" id="enabled-toggle" checked>
-        <span class="slider"></span>
-      </label>
     </header>
 
-    <!-- URL設定欄（将来用、現在は無効） -->
-    <section class="url-section">
-      <label class="section-label">対象URL（将来対応予定）</label>
-      <input type="text" class="url-input" value="https://stage.remowork.biz/*" disabled>
-      <input type="text" class="url-input" value="https://remowork.biz/*" disabled>
-    </section>
+    <!-- タブナビゲーション -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="sound">🔊 音声設定</button>
+      <button class="tab-btn" data-tab="handsign">👋 ハンドサイン</button>
+    </nav>
 
-    <main class="sound-list" id="sound-list">
-      <!-- 動的に生成 -->
-    </main>
+    <!-- 音声設定タブ -->
+    <div class="tab-content active" id="tab-sound">
+      <div class="tab-header">
+        <span>音声差し替え</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="enabled-toggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- URL設定欄（将来用、現在は無効） -->
+      <section class="url-section">
+        <label class="section-label">対象URL（将来対応予定）</label>
+        <input type="text" class="url-input" value="https://stage.remowork.biz/*" disabled>
+        <input type="text" class="url-input" value="https://remowork.biz/*" disabled>
+      </section>
+
+      <main class="sound-list" id="sound-list">
+        <!-- 動的に生成 -->
+      </main>
+
+      <div class="note">上限: 300MB / 10分</div>
+    </div>
+
+    <!-- ハンドサイン検出タブ -->
+    <div class="tab-content" id="tab-handsign">
+      <div class="tab-header">
+        <span>ハンドサイン検出</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="handsign-enabled-toggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <section class="handsign-section">
+        <label class="section-label">自分の名前（検出対象外）</label>
+        <input type="text" class="text-input" id="handsign-myname" placeholder="ページから自動検出します">
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">検出対象</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="detect-target" value="all" checked>
+            全員を検出
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="detect-target" value="selected">
+            選択したメンバーのみ
+          </label>
+        </div>
+        <div class="member-list" id="member-list" style="display: none;">
+          <p class="note">Remoworkページで自動取得されます</p>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">通知設定</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="handsign-toast" checked>
+            画面にトースト表示
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="handsign-sound" checked>
+            通知音を鳴らす
+          </label>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">通知音の種類</label>
+        <select class="sound-mode" id="handsign-sound-preset">
+          <option value="doorchime">ドアチャイム系</option>
+          <option value="incoming">着信音系</option>
+          <option value="disconnect">完了音系</option>
+        </select>
+        <button class="btn btn-test-sound" id="test-handsign-sound">🔊 テスト再生</button>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">検出するジェスチャー</label>
+        <div class="gesture-list">
+          <div class="gesture-item">
+            <span class="gesture-emoji">👋</span>
+            <span class="gesture-desc">手を開く → 話したそう</span>
+          </div>
+          <div class="gesture-item">
+            <span class="gesture-emoji">👍</span>
+            <span class="gesture-desc">サムズアップ → いいね！</span>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <footer class="footer">
-      <p class="note">上限: 300MB / 10分</p>
-      <p class="version">v1.0.0</p>
+      <p class="version">v1.1.0</p>
     </footer>
   </div>
 
