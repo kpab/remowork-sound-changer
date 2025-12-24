@@ -294,6 +294,24 @@ async function handleMessage(message) {
       await saveHandSignSettings(message.settings);
       return { success: true };
 
+    case 'INIT_HAND_DETECTOR':
+      // オフスクリーンでハンド検出器を初期化
+      const initResult = await sendToOffscreen({ type: 'INIT_DETECTOR' });
+      return initResult;
+
+    case 'DETECT_HAND_SIGN':
+      // オフスクリーンでハンドサイン検出
+      const detectResult = await sendToOffscreen({
+        type: 'DETECT_HAND_SIGN',
+        imageData: message.imageData
+      });
+      return detectResult;
+
+    case 'GET_DETECTOR_STATUS':
+      // オフスクリーンの検出器状態を取得
+      const statusResult = await sendToOffscreen({ type: 'GET_STATUS' });
+      return statusResult;
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -430,6 +448,70 @@ async function playHandSignSound(presetType) {
     }
   } catch (error) {
     console.error('Failed to play hand sign sound:', error);
+  }
+}
+
+// オフスクリーンドキュメント管理
+let creatingOffscreen = null;
+
+/**
+ * オフスクリーンドキュメントを作成
+ */
+async function setupOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+
+  // 既存のオフスクリーンドキュメントを確認
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl]
+  });
+
+  if (existingContexts.length > 0) {
+    return; // 既に存在する
+  }
+
+  // 作成中の場合は待機
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return;
+  }
+
+  // 新規作成
+  creatingOffscreen = chrome.offscreen.createDocument({
+    url: offscreenUrl,
+    reasons: ['WORKERS'],
+    justification: 'Hand pose detection using MediaPipe requires WebAssembly and worker support'
+  });
+
+  await creatingOffscreen;
+  creatingOffscreen = null;
+  console.log('[Background] Offscreen document created');
+}
+
+/**
+ * オフスクリーンドキュメントにメッセージを送信
+ */
+async function sendToOffscreen(message) {
+  try {
+    await setupOffscreenDocument();
+    return await chrome.runtime.sendMessage({
+      ...message,
+      target: 'offscreen'
+    });
+  } catch (error) {
+    console.error('[Background] Failed to send message to offscreen:', error);
+    // オフスクリーンドキュメントが閉じられていた場合は再作成を試みる
+    creatingOffscreen = null;
+    try {
+      await setupOffscreenDocument();
+      return await chrome.runtime.sendMessage({
+        ...message,
+        target: 'offscreen'
+      });
+    } catch (retryError) {
+      console.error('[Background] Retry failed:', retryError);
+      return { success: false, error: 'Offscreen communication failed' };
+    }
   }
 }
 

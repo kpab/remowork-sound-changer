@@ -773,6 +773,10 @@ async function populateHandSignSoundOptions(selectElement) {
             const option = document.createElement('option');
             option.value = `${category}:${sound.id}`;
             option.textContent = sound.label;
+            // デフォルトは法螺貝
+            if (category === 'outgoing' && sound.id === 'outgoing_horn') {
+              option.selected = true;
+            }
             optgroup.appendChild(option);
           }
 
@@ -897,7 +901,6 @@ async function saveHandSignSettings() {
 // ===============================================
 
 const MAX_IMAGES_PER_TYPE = 12;
-let cameraStream = null;
 let virtualCameraImages = {
   wave: [],     // 最大12枚の配列
   thumbsup: []  // 最大12枚の配列
@@ -934,21 +937,21 @@ async function setupVirtualCamera() {
     }
   }
 
-  // カメラ起動ボタン
+  // カメラ起動ボタン（Remoworkサイト上でモーダルを開く）
   const startCameraBtn = document.getElementById('start-camera-btn');
   if (startCameraBtn) {
-    startCameraBtn.addEventListener('click', toggleCamera);
+    startCameraBtn.addEventListener('click', openCameraOnSite);
   }
 
-  // 撮影ボタン
+  // 撮影ボタン（ポップアップ内のカメラは廃止、サイト上で撮影）
   const captureWaveBtn = document.getElementById('capture-wave-btn');
   const captureThumbsupBtn = document.getElementById('capture-thumbsup-btn');
 
   if (captureWaveBtn) {
-    captureWaveBtn.addEventListener('click', () => captureImage('wave'));
+    captureWaveBtn.addEventListener('click', openCameraOnSite);
   }
   if (captureThumbsupBtn) {
-    captureThumbsupBtn.addEventListener('click', () => captureImage('thumbsup'));
+    captureThumbsupBtn.addEventListener('click', openCameraOnSite);
   }
 
   // 全削除ボタン
@@ -975,36 +978,34 @@ async function setupVirtualCamera() {
 }
 
 /**
- * カメラの起動/停止
+ * カメラ撮影モーダルを開く（Remoworkサイト上で）
  */
-async function toggleCamera() {
-  const video = document.getElementById('camera-preview');
-  const startBtn = document.getElementById('start-camera-btn');
-  const captureWaveBtn = document.getElementById('capture-wave-btn');
-  const captureThumbsupBtn = document.getElementById('capture-thumbsup-btn');
+async function openCameraOnSite() {
+  try {
+    // アクティブなRemoworkタブを取得
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
 
-  if (cameraStream) {
-    // カメラを停止
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
-    video.srcObject = null;
-    startBtn.textContent = '📷 カメラ起動';
-    captureWaveBtn.disabled = true;
-    captureThumbsupBtn.disabled = true;
-  } else {
-    // カメラを起動
-    try {
-      cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' }
-      });
-      video.srcObject = cameraStream;
-      startBtn.textContent = '⏹ カメラ停止';
-      captureWaveBtn.disabled = false;
-      captureThumbsupBtn.disabled = false;
-    } catch (error) {
-      console.error('[Popup] Camera error:', error);
-      showToast('カメラへのアクセスに失敗しました', 'error');
+    if (!tab || !tab.url) {
+      showToast('Remoworkサイトを開いてください', 'error');
+      return;
     }
+
+    // Remoworkサイトかチェック
+    if (!tab.url.includes('remowork.biz')) {
+      showToast('Remoworkサイトを開いてから\n撮影ボタンを押してください', 'error');
+      return;
+    }
+
+    // content scriptにメッセージを送信してカメラモーダルを開く
+    await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_CAMERA_MODAL' });
+    showToast('Remoworkサイト上でカメラが開きます', 'success');
+
+    // ポップアップを閉じる（ユーザーがサイトで操作できるように）
+    window.close();
+  } catch (error) {
+    console.error('[Popup] Failed to open camera modal:', error);
+    showToast('カメラの起動に失敗しました\nRemoworkサイトを開いてください', 'error');
   }
 }
 
@@ -1080,42 +1081,6 @@ function updateImageGrid(type) {
   if (clearBtn) {
     clearBtn.style.display = images.length > 0 ? 'inline-block' : 'none';
   }
-}
-
-/**
- * 画像を撮影
- */
-function captureImage(type) {
-  const video = document.getElementById('camera-preview');
-  const canvas = document.getElementById('camera-canvas');
-
-  if (!video || !canvas || !cameraStream) {
-    showToast('カメラが起動していません', 'error');
-    return;
-  }
-
-  const images = virtualCameraImages[type] || [];
-  if (images.length >= MAX_IMAGES_PER_TYPE) {
-    showToast(`${type === 'wave' ? '👋' : '👍'} は最大${MAX_IMAGES_PER_TYPE}枚までです`, 'error');
-    return;
-  }
-
-  // Canvasに描画
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-
-  // Base64に変換
-  const imageData = canvas.toDataURL('image/jpeg', 0.8);
-
-  // 配列に追加
-  virtualCameraImages[type].push(imageData);
-  saveVirtualCameraImages();
-  updateImageGrid(type);
-
-  const emoji = type === 'wave' ? '👋' : '👍';
-  showToast(`${emoji} を登録しました (${virtualCameraImages[type].length}/${MAX_IMAGES_PER_TYPE})`, 'success');
 }
 
 /**
@@ -1200,4 +1165,18 @@ async function saveVirtualCameraImages() {
       console.error('[Popup] Error saving virtual camera images:', error);
     }
   }
+}
+
+// ストレージ変更を監視（content scriptで撮影した画像を反映）
+if (isExtension) {
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.virtualCameraImages) {
+      const newImages = changes.virtualCameraImages.newValue;
+      if (newImages) {
+        virtualCameraImages = newImages;
+        updateImageGrids();
+        console.log('[Popup] Virtual camera images updated from storage');
+      }
+    }
+  });
 }

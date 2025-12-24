@@ -3,9 +3,13 @@
   "name": "Remowork Sound Changer",
   "version": "1.2.0",
   "description": "Remoworkの着信音・通知音をカスタマイズ",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "permissions": [
     "storage",
-    "tabCapture"
+    "tabCapture",
+    "offscreen"
   ],
   "host_permissions": [
     "https://stage.remowork.biz/*",
@@ -41,15 +45,6 @@
         "https://stage.remowork.biz/*",
         "https://remowork.biz/*"
       ],
-      "js": ["recorder.js"],
-      "css": ["recorder.css"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://stage.remowork.biz/*",
-        "https://remowork.biz/*"
-      ],
       "js": ["hand-sign-detector.js"],
       "run_at": "document_idle"
     }
@@ -60,9 +55,7 @@
         "inject.js",
         "virtual-camera.js",
         "sounds/*/*",
-        "recorder.css",
-        "lib/tf.min.js",
-        "lib/hand-pose-detection.min.js"
+        "lib/mediapipe/*"
       ],
       "matches": ["https://stage.remowork.biz/*", "https://remowork.biz/*"]
     }

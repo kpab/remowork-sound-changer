@@ -678,17 +678,148 @@
     alert('[Remowork Recorder] ' + message);
   }
 
+  /**
+   * 拡張機能コンテキストが有効かチェック
+   */
+  function isExtensionContextValid() {
+    try {
+      return chrome.runtime && chrome.runtime.id;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // CSSを読み込み
   function loadCSS() {
+    if (!isExtensionContextValid()) {
+      console.warn('[RemoworkRecorder] Extension context invalidated, please reload the page');
+      return;
+    }
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = chrome.runtime.getURL('recorder.css');
     document.head.appendChild(link);
   }
 
-  // 初期化
-  loadCSS();
-  createRecorderUI();
+  /**
+   * ログイン画面かどうかを判定
+   */
+  function isLoginPage() {
+    const path = window.location.pathname;
 
-  console.log('[RemoworkRecorder] Initialized');
+    // Remoworkのログインページ: /client/login
+    if (path === '/client/login' || path.endsWith('/login')) {
+      return true;
+    }
+
+    // ログインユーザー情報がなければログイン画面とみなす
+    const userElement = document.querySelector('.user-picture-container.login-user');
+    if (!userElement) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * レコーダーUIを非表示
+   */
+  function hideRecorderUI() {
+    const container = document.querySelector('#rsc-recorder');
+    if (container) {
+      container.style.display = 'none';
+    }
+    // 録音中なら停止
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      stopRecording();
+    }
+    console.log('[RemoworkRecorder] Hidden (logged out)');
+  }
+
+  /**
+   * レコーダーUIを表示
+   */
+  function showRecorderUI() {
+    const container = document.querySelector('#rsc-recorder');
+    if (container) {
+      container.style.display = '';
+    }
+    console.log('[RemoworkRecorder] Shown (logged in)');
+  }
+
+  /**
+   * ページ遷移を監視（SPA対応）
+   */
+  function watchPageNavigation() {
+    let lastPath = window.location.pathname;
+    let wasLoginPage = isLoginPage();
+
+    const checkNavigation = () => {
+      const currentPath = window.location.pathname;
+      const currentlyLoginPage = isLoginPage();
+
+      if (currentPath !== lastPath || currentlyLoginPage !== wasLoginPage) {
+        lastPath = currentPath;
+
+        if (currentlyLoginPage && !wasLoginPage) {
+          // ログアウト: ログイン画面に遷移
+          hideRecorderUI();
+        } else if (!currentlyLoginPage && wasLoginPage) {
+          // ログイン: ログイン画面から離脱
+          setTimeout(() => {
+            const container = document.querySelector('#rsc-recorder');
+            if (!container) {
+              loadCSS();
+              createRecorderUI();
+            } else {
+              showRecorderUI();
+            }
+          }, 1000);
+        }
+
+        wasLoginPage = currentlyLoginPage;
+      }
+    };
+
+    // popstate（ブラウザの戻る/進む）
+    window.addEventListener('popstate', checkNavigation);
+
+    // History APIのpushState/replaceStateを監視
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function(...args) {
+      originalPushState.apply(this, args);
+      setTimeout(checkNavigation, 100);
+    };
+
+    history.replaceState = function(...args) {
+      originalReplaceState.apply(this, args);
+      setTimeout(checkNavigation, 100);
+    };
+
+    // 定期チェック（フォールバック）
+    setInterval(checkNavigation, 2000);
+  }
+
+  /**
+   * 初期化
+   */
+  function init() {
+    // ログイン画面では初期化しない
+    if (isLoginPage()) {
+      console.log('[RemoworkRecorder] Login page detected, skipping initialization');
+      watchPageNavigation();
+      return;
+    }
+
+    loadCSS();
+    createRecorderUI();
+    watchPageNavigation();
+
+    console.log('[RemoworkRecorder] Initialized');
+  }
+
+  // 初期化実行
+  init();
 })();

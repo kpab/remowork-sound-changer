@@ -135,16 +135,15 @@
         <label class="section-label">ハンドサイン画像を撮影・登録（各12枚まで）</label>
         <p class="note" style="margin-bottom: 12px;">撮影ごとにランダムで使用されます！</p>
 
-        <div class="camera-preview-container">
-          <video id="camera-preview" autoplay playsinline muted></video>
-          <canvas id="camera-canvas" style="display: none;"></canvas>
+        <div class="camera-info-box">
+          <p>📷 Remoworkサイト上で撮影します</p>
+          <p class="note">サイトのカメラ権限を使用するため、<br>ポップアップでは撮影できません</p>
         </div>
 
         <div class="camera-controls">
-          <button class="btn btn-camera-action" id="start-camera-btn">📷 カメラ起動</button>
-          <button class="btn btn-camera-action" id="capture-wave-btn" disabled>👋 撮影</button>
-          <button class="btn btn-camera-action" id="capture-thumbsup-btn" disabled>👍 撮影</button>
+          <button class="btn btn-camera-action btn-primary" id="start-camera-btn">📷 撮影モーダルを開く</button>
         </div>
+        <canvas id="camera-canvas" style="display: none;"></canvas>
       </section>
 
       <section class="handsign-section">
