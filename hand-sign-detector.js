@@ -121,17 +121,21 @@
           <span class="rsc-timer-value">5:00</span>
         </div>
       </div>
-      <div class="rsc-timer-divider"></div>
-      <div class="rsc-timer-buttons">
-        <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
-        <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
-        <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
+      <div class="rsc-timer-rows">
+        <div class="rsc-timer-row">
+          <div class="rsc-timer-buttons">
+            <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
+            <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
+            <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
+          </div>
+          <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
+        </div>
+        <div class="rsc-timer-row">
+          <button class="rsc-sound-btn" title="音声変更">🔊 音声変更</button>
+          <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
+          <button class="rsc-record-btn" title="録音">🎙️ 録音</button>
+        </div>
       </div>
-      <div class="rsc-timer-divider"></div>
-      <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
-      <button class="rsc-record-btn" title="録音">🎙️</button>
-      <button class="rsc-sound-btn" title="音声変更">🔊 音声変更</button>
-      <button class="rsc-test-btn" title="通知テスト">🔔</button>
     `;
 
     document.body.appendChild(timerElement);
@@ -167,6 +171,16 @@
           display: flex;
           align-items: center;
           gap: 10px;
+        }
+        .rsc-timer-rows {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .rsc-timer-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
         .rsc-timer-divider {
           width: 1px;
@@ -282,21 +296,24 @@
           cursor: not-allowed;
         }
         .rsc-record-btn {
-          width: 32px;
           height: 32px;
+          padding: 0 12px;
           border: none;
           border-radius: 6px;
           background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          font-size: 16px;
+          font-size: 13px;
+          color: #fff;
           cursor: pointer;
           transition: all 0.2s;
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 4px;
+          white-space: nowrap;
         }
         .rsc-record-btn:hover {
           background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-          transform: scale(1.1);
+          transform: scale(1.05);
         }
         .rsc-sound-btn {
           height: 32px;
@@ -318,25 +335,25 @@
           background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
           transform: scale(1.05);
         }
-        .rsc-test-btn {
-          width: 32px;
+        .rsc-notify-btn {
           height: 32px;
+          padding: 0 12px;
           border: none;
           border-radius: 6px;
           background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
-          font-size: 16px;
+          font-size: 13px;
+          color: #fff;
           cursor: pointer;
           transition: all 0.2s;
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 4px;
+          white-space: nowrap;
         }
-        .rsc-test-btn:hover {
+        .rsc-notify-btn:hover {
           background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%);
-          transform: scale(1.1);
-        }
-        .rsc-test-btn:active {
-          transform: scale(0.95);
+          transform: scale(1.05);
         }
       `;
       document.head.appendChild(style);
@@ -345,8 +362,8 @@
     // ボタンのクリックハンドラー
     setupSendButtons();
 
-    // テストボタンのハンドラー
-    setupTestButton();
+    // 通知設定ボタンのハンドラー
+    setupNotifyButton();
 
     // 事前撮影ボタンのハンドラー
     setupToolsButton();
@@ -418,7 +435,7 @@
    */
   function onDragStart(e) {
     // ボタンクリックは除外
-    if (e.target.closest('.rsc-send-btn') || e.target.closest('.rsc-test-btn') || e.target.closest('.rsc-tools-btn') || e.target.closest('.rsc-away-btn') || e.target.closest('.rsc-record-btn') || e.target.closest('.rsc-sound-btn')) return;
+    if (e.target.closest('.rsc-send-btn') || e.target.closest('.rsc-notify-btn') || e.target.closest('.rsc-tools-btn') || e.target.closest('.rsc-away-btn') || e.target.closest('.rsc-record-btn') || e.target.closest('.rsc-sound-btn')) return;
 
     isDragging = true;
     timerElement.classList.add('rsc-dragging');
@@ -656,13 +673,13 @@
   }
 
   /**
-   * テスト通知ボタンのセットアップ
+   * 通知設定ボタンのセットアップ
    */
-  function setupTestButton() {
-    const testBtn = timerElement.querySelector('.rsc-test-btn');
-    if (testBtn) {
-      testBtn.addEventListener('click', () => {
-        testNotification();
+  function setupNotifyButton() {
+    const notifyBtn = timerElement.querySelector('.rsc-notify-btn');
+    if (notifyBtn) {
+      notifyBtn.addEventListener('click', () => {
+        openSoundSettingsModal(true); // 通知音設定にスクロール
       });
     }
   }
@@ -2744,14 +2761,31 @@
 
   /**
    * 音声設定モーダルを開く
+   * @param {boolean} scrollToNotification - 通知音設定にスクロールするかどうか
    */
-  async function openSoundSettingsModal() {
+  async function openSoundSettingsModal(scrollToNotification = false) {
     createSoundSettingsModal();
     soundSettingsModal.classList.add('rsc-active');
 
     // データを読み込み
     await loadSoundSettingsData();
     renderSoundSettings();
+
+    // 通知音設定にスクロール
+    if (scrollToNotification) {
+      setTimeout(() => {
+        const notificationSection = soundSettingsModal.querySelector('.rsc-sound-notification');
+        if (notificationSection) {
+          notificationSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // ハイライト効果
+          notificationSection.style.transition = 'background-color 0.3s';
+          notificationSection.style.backgroundColor = 'rgba(74, 144, 217, 0.2)';
+          setTimeout(() => {
+            notificationSection.style.backgroundColor = '';
+          }, 1500);
+        }
+      }, 100);
+    }
   }
 
   /**
