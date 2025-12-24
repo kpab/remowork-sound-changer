@@ -14,9 +14,9 @@
 
     <!-- タブナビゲーション -->
     <nav class="tab-nav">
-      <button class="tab-btn active" data-tab="sound">🔊 音声設定</button>
-      <button class="tab-btn" data-tab="handsign">👋 ハンドサイン</button>
-      <button class="tab-btn hidden-tab" data-tab="virtual-camera">📷</button>
+      <button class="tab-btn active" data-tab="sound">🔊 音声</button>
+      <button class="tab-btn" data-tab="handsign">👋 検出</button>
+      <button class="tab-btn" data-tab="virtual-camera">📷 送信</button>
     </nav>
 
     <!-- 音声設定タブ -->
@@ -92,11 +92,22 @@
       <section class="handsign-section">
         <label class="section-label">通知音の種類</label>
         <select class="sound-mode" id="handsign-sound-preset">
-          <option value="doorchime">ドアチャイム系</option>
-          <option value="incoming">着信音系</option>
-          <option value="disconnect">完了音系</option>
+          <!-- 動的に生成される -->
         </select>
-        <button class="btn btn-test-sound" id="test-handsign-sound">🔊 テスト再生</button>
+        <div class="sound-controls" style="margin-top: 8px;">
+          <button class="btn btn-play" id="test-handsign-sound" title="再生">
+            <svg class="icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+          </button>
+          <label class="btn btn-upload" title="カスタム音声をアップロード">
+            <input type="file" accept="audio/*" id="handsign-custom-upload" hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/>
+            </svg>
+          </label>
+        </div>
+        <div class="sound-file-info" id="handsign-custom-file-info"></div>
       </section>
 
       <section class="handsign-section">
@@ -108,7 +119,7 @@
           </div>
           <div class="gesture-item">
             <span class="gesture-emoji">👍</span>
-            <span class="gesture-desc">サムズアップ → いいね！</span>
+            <span class="gesture-desc">サムズアップ → 話してもOK</span>
           </div>
         </div>
       </section>

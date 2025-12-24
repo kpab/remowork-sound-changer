@@ -389,14 +389,36 @@ async function saveHandSignSettings(settings) {
 async function playHandSignSound(presetType) {
   try {
     const handSignSettings = await getHandSignSettings();
-    const soundType = handSignSettings.notifications?.soundPreset || presetType || 'doorchime';
+    const soundValue = handSignSettings.notifications?.soundPreset || presetType || 'doorchime:doorchime_temple';
 
-    // プリセット音声からランダムに選択
-    const presets = PRESET_SOUNDS[soundType];
-    if (!presets || presets.length === 0) return;
+    let soundUrl = null;
 
-    const preset = presets[Math.floor(Math.random() * presets.length)];
-    const soundUrl = chrome.runtime.getURL(`sounds/${soundType}/${preset.file}`);
+    if (soundValue.startsWith('custom:')) {
+      // カスタム音声
+      const customData = handSignSettings.notifications?.customSoundData;
+      if (customData) {
+        soundUrl = customData; // Base64データをそのまま送る
+      }
+    } else if (soundValue.includes(':')) {
+      // 新形式: category:presetId
+      const [category, presetId] = soundValue.split(':');
+      const presets = PRESET_SOUNDS[category];
+      if (presets) {
+        const preset = presets.find(p => p.id === presetId);
+        if (preset) {
+          soundUrl = chrome.runtime.getURL(`sounds/${category}/${preset.file}`);
+        }
+      }
+    } else {
+      // 旧形式: カテゴリ名のみ（後方互換性）
+      const presets = PRESET_SOUNDS[soundValue];
+      if (presets && presets.length > 0) {
+        const preset = presets[Math.floor(Math.random() * presets.length)];
+        soundUrl = chrome.runtime.getURL(`sounds/${soundValue}/${preset.file}`);
+      }
+    }
+
+    if (!soundUrl) return;
 
     // アクティブなタブで音声を再生
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

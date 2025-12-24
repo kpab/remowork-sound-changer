@@ -617,11 +617,3 @@ input:checked + .slider:before {
   margin-bottom: 0;
 }
 
-/* Hidden mode tab (starts hidden) */
-.tab-btn.hidden-tab {
-  display: none;
-}
-
-.tab-btn.hidden-tab.revealed {
-  display: flex;
-}

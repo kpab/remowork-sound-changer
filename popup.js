@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderSoundList();
   setupEventListeners();
   setupTabNavigation();
-  setupHandSignSettings();
+  await setupHandSignSettings();
   setupVirtualCamera();
 
   // 有効/無効トグルの初期状態
@@ -630,7 +630,7 @@ function setupTabNavigation() {
 /**
  * ハンドサイン設定を初期化
  */
-function setupHandSignSettings() {
+async function setupHandSignSettings() {
   // 有効/無効トグル
   const enabledToggle = document.getElementById('handsign-enabled-toggle');
   if (enabledToggle) {
@@ -699,13 +699,22 @@ function setupHandSignSettings() {
     });
   }
 
-  // 通知音プリセット
+  // 通知音プリセット - 全音声からプルダウン生成
   const soundPresetSelect = document.getElementById('handsign-sound-preset');
   if (soundPresetSelect) {
-    soundPresetSelect.value = handSignSettings.notifications?.soundPreset || 'doorchime';
+    await populateHandSignSoundOptions(soundPresetSelect);
+    soundPresetSelect.value = handSignSettings.notifications?.soundPreset || 'doorchime:doorchime_temple';
     soundPresetSelect.addEventListener('change', async () => {
       handSignSettings.notifications = handSignSettings.notifications || {};
       handSignSettings.notifications.soundPreset = soundPresetSelect.value;
+
+      // カスタム以外の場合はカスタムデータをクリア
+      if (!soundPresetSelect.value.startsWith('custom:')) {
+        handSignSettings.notifications.customSoundData = null;
+        handSignSettings.notifications.customSoundFileName = null;
+        document.getElementById('handsign-custom-file-info').textContent = '';
+      }
+
       await saveHandSignSettings();
     });
   }
@@ -714,15 +723,158 @@ function setupHandSignSettings() {
   const testSoundBtn = document.getElementById('test-handsign-sound');
   if (testSoundBtn) {
     testSoundBtn.addEventListener('click', async () => {
-      const preset = handSignSettings.notifications?.soundPreset || 'doorchime';
+      const soundValue = handSignSettings.notifications?.soundPreset || 'doorchime:doorchime_temple';
+      await playHandSignTestSound(soundValue);
+    });
+  }
 
-      if (isExtension) {
-        await sendMessage({ type: 'PLAY_HAND_SIGN_SOUND', preset });
-        showToast('テスト再生中', 'info');
-      } else {
-        showToast('デモモードでは再生できません');
+  // カスタムアップロード
+  const customUpload = document.getElementById('handsign-custom-upload');
+  if (customUpload) {
+    customUpload.addEventListener('change', async (e) => {
+      if (e.target.files.length > 0) {
+        await handleHandSignCustomUpload(e.target.files[0]);
+        e.target.value = '';
       }
     });
+  }
+
+  // カスタム音声があれば表示
+  if (handSignSettings.notifications?.customSoundFileName) {
+    document.getElementById('handsign-custom-file-info').textContent =
+      `カスタム: ${handSignSettings.notifications.customSoundFileName}`;
+  }
+}
+
+/**
+ * ハンドサイン通知音のプルダウンを生成
+ */
+async function populateHandSignSoundOptions(selectElement) {
+  selectElement.innerHTML = '';
+
+  // プリセット音声を取得
+  if (isExtension) {
+    try {
+      const response = await sendMessage({ type: 'GET_PRESET_SOUNDS' });
+      if (response.success && response.data) {
+        const categoryLabels = {
+          doorchime: 'ドアチャイム',
+          incoming: '着信音',
+          outgoing: '発信音',
+          disconnect: '切断音',
+          calling: '呼び出し音'
+        };
+
+        for (const [category, sounds] of Object.entries(response.data)) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = categoryLabels[category] || category;
+
+          for (const sound of sounds) {
+            const option = document.createElement('option');
+            option.value = `${category}:${sound.id}`;
+            option.textContent = sound.label;
+            optgroup.appendChild(option);
+          }
+
+          selectElement.appendChild(optgroup);
+        }
+      }
+    } catch (error) {
+      console.error('[Popup] Error loading preset sounds:', error);
+    }
+  }
+
+  // カスタムオプション
+  const separator = document.createElement('option');
+  separator.disabled = true;
+  separator.textContent = '── カスタム ──';
+  selectElement.appendChild(separator);
+
+  const customOption = document.createElement('option');
+  customOption.value = 'custom:uploaded';
+  customOption.textContent = 'アップロードした音声';
+  selectElement.appendChild(customOption);
+}
+
+/**
+ * ハンドサイン通知音をテスト再生
+ */
+async function playHandSignTestSound(soundValue) {
+  if (!isExtension) {
+    showToast('デモモードでは再生できません');
+    return;
+  }
+
+  try {
+    if (soundValue.startsWith('custom:')) {
+      // カスタム音声
+      const customData = handSignSettings.notifications?.customSoundData;
+      if (customData) {
+        const audio = new Audio(customData);
+        audio.volume = 0.7;
+        await audio.play();
+        showToast('テスト再生中', 'info');
+      } else {
+        showToast('カスタム音声がアップロードされていません', 'error');
+      }
+    } else {
+      // プリセット音声
+      const [category, presetId] = soundValue.split(':');
+      const response = await sendMessage({ type: 'GET_PRESET_SOUNDS' });
+
+      if (response.success && response.data && response.data[category]) {
+        const preset = response.data[category].find(p => p.id === presetId);
+        if (preset) {
+          const soundUrl = chrome.runtime.getURL(`sounds/${category}/${preset.file}`);
+          const audio = new Audio(soundUrl);
+          audio.volume = 0.7;
+          await audio.play();
+          showToast('テスト再生中', 'info');
+        } else {
+          showToast('音声が見つかりません', 'error');
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Popup] Test play error:', error);
+    showToast('再生に失敗しました', 'error');
+  }
+}
+
+/**
+ * ハンドサイン用カスタム音声アップロード
+ */
+async function handleHandSignCustomUpload(file) {
+  if (file.size > MAX_FILE_SIZE) {
+    showToast('ファイルサイズが300MBを超えています', 'error');
+    return;
+  }
+
+  if (!file.type.startsWith('audio/')) {
+    showToast('音声ファイルを選択してください', 'error');
+    return;
+  }
+
+  try {
+    const data = await fileToBase64(file);
+
+    handSignSettings.notifications = handSignSettings.notifications || {};
+    handSignSettings.notifications.soundPreset = 'custom:uploaded';
+    handSignSettings.notifications.customSoundData = data;
+    handSignSettings.notifications.customSoundFileName = file.name;
+
+    await saveHandSignSettings();
+
+    // UIを更新
+    const selectElement = document.getElementById('handsign-sound-preset');
+    if (selectElement) {
+      selectElement.value = 'custom:uploaded';
+    }
+    document.getElementById('handsign-custom-file-info').textContent = `カスタム: ${file.name}`;
+
+    showToast('カスタム通知音を保存しました', 'success');
+  } catch (error) {
+    showToast('アップロードに失敗しました', 'error');
   }
 }
 
@@ -741,12 +893,10 @@ async function saveHandSignSettings() {
 }
 
 // ===============================================
-// 隠しモード: 仮想カメラ機能
+// 仮想カメラ機能
 // ===============================================
 
 const MAX_IMAGES_PER_TYPE = 12;
-let hiddenModeClickCount = 0;
-let hiddenModeClickTimer = null;
 let cameraStream = null;
 let virtualCameraImages = {
   wave: [],     // 最大12枚の配列
@@ -754,68 +904,17 @@ let virtualCameraImages = {
 };
 
 /**
- * 隠しモードのトリガー（タイトル5回クリック）
- */
-function setupHiddenModeTrigger() {
-  const header = document.querySelector('.header h1');
-  if (!header) return;
-
-  header.style.cursor = 'default';
-  header.addEventListener('click', () => {
-    hiddenModeClickCount++;
-
-    if (hiddenModeClickTimer) {
-      clearTimeout(hiddenModeClickTimer);
-    }
-
-    hiddenModeClickTimer = setTimeout(() => {
-      hiddenModeClickCount = 0;
-    }, 2000); // 2秒以内に5回クリック
-
-    if (hiddenModeClickCount >= 5) {
-      revealHiddenMode();
-      hiddenModeClickCount = 0;
-    }
-  });
-}
-
-/**
- * 隠しモードを表示
- */
-function revealHiddenMode() {
-  const hiddenTab = document.querySelector('.tab-btn[data-tab="virtual-camera"]');
-  if (hiddenTab) {
-    hiddenTab.classList.add('revealed');
-    showToast('📷 隠しモードを解除しました！', 'success');
-
-    // 設定を保存して次回から自動表示
-    if (isExtension) {
-      chrome.storage.local.set({ hiddenModeRevealed: true });
-    }
-  }
-}
-
-/**
  * 仮想カメラ設定を初期化
  */
 async function setupVirtualCamera() {
-  // 隠しモードトリガーを設定
-  setupHiddenModeTrigger();
-
   // グリッドを初期化
   renderImageGrid('wave');
   renderImageGrid('thumbsup');
 
-  // 前回隠しモードを解除していたら自動表示
+  // ストレージから画像を読み込み
   if (isExtension) {
     try {
-      const result = await chrome.storage.local.get(['hiddenModeRevealed', 'virtualCameraImages']);
-      if (result.hiddenModeRevealed) {
-        const hiddenTab = document.querySelector('.tab-btn[data-tab="virtual-camera"]');
-        if (hiddenTab) {
-          hiddenTab.classList.add('revealed');
-        }
-      }
+      const result = await chrome.storage.local.get(['virtualCameraImages']);
       if (result.virtualCameraImages) {
         // 旧形式（単一画像）から新形式（配列）への移行
         if (result.virtualCameraImages.wave && !Array.isArray(result.virtualCameraImages.wave)) {

@@ -130,10 +130,16 @@
           gap: 10px;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           opacity: 0.9;
-          transition: opacity 0.2s;
+          transition: opacity 0.2s, box-shadow 0.2s;
+          cursor: move;
+          user-select: none;
         }
         #rsc-photo-timer:hover {
           opacity: 1;
+        }
+        #rsc-photo-timer.rsc-dragging {
+          opacity: 1;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
         #rsc-photo-timer.rsc-timer-hidden {
           display: none;
@@ -206,6 +212,124 @@
 
     // ボタンのクリックハンドラー
     setupSendButtons();
+
+    // ドラッグ機能
+    setupDraggable();
+  }
+
+  // ドラッグ関連の変数
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let timerStartX = 0;
+  let timerStartY = 0;
+
+  /**
+   * ドラッグ機能のセットアップ
+   */
+  function setupDraggable() {
+    if (!timerElement) return;
+
+    // 保存された位置を復元
+    chrome.storage.local.get(['timerPosition'], (result) => {
+      if (result.timerPosition) {
+        timerElement.style.left = result.timerPosition.left;
+        timerElement.style.top = result.timerPosition.top;
+        timerElement.style.bottom = 'auto';
+        timerElement.style.right = 'auto';
+      }
+    });
+
+    timerElement.addEventListener('mousedown', onDragStart);
+    timerElement.addEventListener('touchstart', onDragStart, { passive: false });
+  }
+
+  /**
+   * ドラッグ開始
+   */
+  function onDragStart(e) {
+    // ボタンクリックは除外
+    if (e.target.closest('.rsc-send-btn')) return;
+
+    isDragging = true;
+    timerElement.classList.add('rsc-dragging');
+
+    const rect = timerElement.getBoundingClientRect();
+    timerStartX = rect.left;
+    timerStartY = rect.top;
+
+    if (e.type === 'touchstart') {
+      dragStartX = e.touches[0].clientX;
+      dragStartY = e.touches[0].clientY;
+      e.preventDefault();
+    } else {
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchmove', onDragMove, { passive: false });
+    document.addEventListener('touchend', onDragEnd);
+  }
+
+  /**
+   * ドラッグ中
+   */
+  function onDragMove(e) {
+    if (!isDragging) return;
+
+    let clientX, clientY;
+    if (e.type === 'touchmove') {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+      e.preventDefault();
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    const deltaX = clientX - dragStartX;
+    const deltaY = clientY - dragStartY;
+
+    let newX = timerStartX + deltaX;
+    let newY = timerStartY + deltaY;
+
+    // 画面外に出ないように制限
+    const rect = timerElement.getBoundingClientRect();
+    const maxX = window.innerWidth - rect.width;
+    const maxY = window.innerHeight - rect.height;
+
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+
+    timerElement.style.left = newX + 'px';
+    timerElement.style.top = newY + 'px';
+    timerElement.style.bottom = 'auto';
+    timerElement.style.right = 'auto';
+  }
+
+  /**
+   * ドラッグ終了
+   */
+  function onDragEnd() {
+    if (!isDragging) return;
+
+    isDragging = false;
+    timerElement.classList.remove('rsc-dragging');
+
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+    document.removeEventListener('touchmove', onDragMove);
+    document.removeEventListener('touchend', onDragEnd);
+
+    // 位置を保存
+    chrome.storage.local.set({
+      timerPosition: {
+        left: timerElement.style.left,
+        top: timerElement.style.top
+      }
+    });
   }
 
   // 現在有効なハンドサインタイプ
