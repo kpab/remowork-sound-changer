@@ -387,11 +387,28 @@
   /**
    * テスト通知を実行
    */
-  function testNotification() {
+  async function testNotification() {
     const testGesture = { emoji: '👋', message: '話したそうにしています（テスト）' };
     showToast('テストユーザー', testGesture);
-    playNotificationSound();
+    // テストなので設定に関係なく音を鳴らす
+    await playNotificationSoundForTest();
     showTimerToast('通知テストを実行しました');
+  }
+
+  /**
+   * テスト用に通知音を再生（設定の有効/無効に関係なく再生）
+   */
+  async function playNotificationSoundForTest() {
+    try {
+      // background.js に通知音再生を依頼（設定された音を使用、デフォルトは法螺貝）
+      const soundPreset = settings.notifications?.soundPreset || 'outgoing:outgoing_horn';
+      chrome.runtime.sendMessage({
+        type: 'PLAY_HAND_SIGN_SOUND',
+        preset: soundPreset
+      });
+    } catch (error) {
+      console.error('[HandSign] Failed to play test sound:', error);
+    }
   }
 
   /**
