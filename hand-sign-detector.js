@@ -2880,6 +2880,53 @@
           opacity: 0.5;
           cursor: not-allowed;
         }
+        .rsc-sound-upload-btn {
+          width: 40px;
+          height: 40px;
+          border: none;
+          border-radius: 8px;
+          background: #6b7280;
+          color: #fff;
+          font-size: 16px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+        .rsc-sound-upload-btn:hover {
+          background: #4b5563;
+          transform: scale(1.05);
+        }
+        .rsc-sound-custom-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 8px;
+          padding: 8px 12px;
+          background: rgba(74, 222, 128, 0.1);
+          border: 1px solid rgba(74, 222, 128, 0.3);
+          border-radius: 6px;
+          font-size: 13px;
+        }
+        .rsc-sound-custom-name {
+          flex: 1;
+          color: #4ade80;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .rsc-sound-custom-delete {
+          background: none;
+          border: none;
+          color: #ef4444;
+          font-size: 14px;
+          cursor: pointer;
+          padding: 2px 6px;
+        }
+        .rsc-sound-custom-delete:hover {
+          color: #f87171;
+        }
         .rsc-sound-notification {
           margin-top: 20px;
           padding-top: 20px;
@@ -3474,6 +3521,9 @@
       const currentMode = currentSetting.mode || 'original';
       const currentPresetId = currentSetting.presetId || '';
 
+      const customFileName = currentSetting.customFileName || '';
+      const hasCustom = currentMode === 'custom' && customFileName;
+
       html += `
         <div class="rsc-sound-item" data-type="${type}">
           <div class="rsc-sound-item-header">
@@ -3483,27 +3533,47 @@
           <div class="rsc-sound-select-row">
             <select class="rsc-sound-select" data-type="${type}">
               <option value="original"${currentMode === 'original' ? ' selected' : ''}>オリジナル</option>
+              ${hasCustom ? `<option value="custom" selected>🎵 カスタム音声</option>` : ''}
               <optgroup label="プリセット">
                 ${presets.map(p => `<option value="preset:${p.id}"${currentMode === 'preset' && currentPresetId === p.id ? ' selected' : ''}>${p.label}</option>`).join('')}
               </optgroup>
             </select>
             <button class="rsc-sound-play-btn" data-type="${type}" title="試聴">▶</button>
+            <button class="rsc-sound-upload-btn" data-type="${type}" title="カスタム音声をアップロード">📁</button>
+            <input type="file" class="rsc-sound-file-input" data-type="${type}" accept="audio/*" style="display:none;">
           </div>
+          ${hasCustom ? `
+            <div class="rsc-sound-custom-info" data-type="${type}">
+              <span class="rsc-sound-custom-name">🎵 ${customFileName}</span>
+              <button class="rsc-sound-custom-delete" data-type="${type}" title="削除">✕</button>
+            </div>
+          ` : ''}
         </div>
       `;
     }
 
     // 通知音設定
+    const notifCustom = settings.notifications?.soundPreset === 'custom';
+    const notifFileName = settings.notifications?.customFileName || '';
     html += `
       <div class="rsc-sound-notification">
         <div class="rsc-sound-notification-title">🔔 ハンドサイン検出時の通知音</div>
         <div class="rsc-sound-item" data-type="notification">
           <div class="rsc-sound-select-row">
             <select class="rsc-sound-select" data-type="notification" id="rsc-notification-sound-select">
+              ${notifCustom ? '<option value="custom" selected>🎵 カスタム音声</option>' : ''}
               ${renderNotificationOptions()}
             </select>
             <button class="rsc-sound-play-btn" data-type="notification" title="試聴">▶</button>
+            <button class="rsc-sound-upload-btn" data-type="notification" title="カスタム音声をアップロード">📁</button>
+            <input type="file" class="rsc-sound-file-input" data-type="notification" accept="audio/*" style="display:none;">
           </div>
+          ${notifCustom && notifFileName ? `
+            <div class="rsc-sound-custom-info" data-type="notification">
+              <span class="rsc-sound-custom-name">🎵 ${notifFileName}</span>
+              <button class="rsc-sound-custom-delete" data-type="notification" title="削除">✕</button>
+            </div>
+          ` : ''}
         </div>
       </div>
     `;
@@ -3516,6 +3586,15 @@
     });
     content.querySelectorAll('.rsc-sound-play-btn').forEach(btn => {
       btn.addEventListener('click', handleSoundPreview);
+    });
+    content.querySelectorAll('.rsc-sound-upload-btn').forEach(btn => {
+      btn.addEventListener('click', handleSoundUploadClick);
+    });
+    content.querySelectorAll('.rsc-sound-file-input').forEach(input => {
+      input.addEventListener('change', handleSoundFileSelect);
+    });
+    content.querySelectorAll('.rsc-sound-custom-delete').forEach(btn => {
+      btn.addEventListener('click', handleSoundCustomDelete);
     });
   }
 
@@ -3624,9 +3703,135 @@
         const audio = new Audio(soundUrl);
         audio.volume = 0.7;
         await audio.play();
+      } else if (value === 'custom') {
+        // カスタム音声の試聴
+        if (type === 'notification') {
+          const result = await chrome.storage.local.get('notificationCustomSound');
+          if (result.notificationCustomSound?.data) {
+            const audio = new Audio(result.notificationCustomSound.data);
+            audio.volume = 0.7;
+            await audio.play();
+          }
+        } else {
+          const result = await chrome.runtime.sendMessage({ type: 'GET_SOUND', id: type });
+          if (result.success && result.data) {
+            const audio = new Audio(result.data);
+            audio.volume = 0.7;
+            await audio.play();
+          }
+        }
       }
     } catch (error) {
       console.error('[HandSign] Failed to preview sound:', error);
+    }
+  }
+
+  /**
+   * アップロードボタンクリックハンドラー
+   */
+  function handleSoundUploadClick(e) {
+    const type = e.target.closest('.rsc-sound-upload-btn').dataset.type;
+    const fileInput = soundSettingsModal.querySelector(`.rsc-sound-file-input[data-type="${type}"]`);
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
+  /**
+   * ファイル選択ハンドラー
+   */
+  async function handleSoundFileSelect(e) {
+    const type = e.target.dataset.type;
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // ファイルサイズチェック
+    const maxSize = type === 'notification' ? 10 * 1024 * 1024 : 300 * 1024 * 1024;
+    if (file.size > maxSize) {
+      showTimerToast(`ファイルサイズが大きすぎます（最大${type === 'notification' ? '10MB' : '300MB'}）`);
+      return;
+    }
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Data = event.target.result;
+
+        if (type === 'notification') {
+          // 通知音カスタム
+          await chrome.runtime.sendMessage({
+            type: 'SAVE_NOTIFICATION_CUSTOM_SOUND',
+            data: base64Data,
+            fileName: file.name,
+            mimeType: file.type
+          });
+
+          settings.notifications = settings.notifications || {};
+          settings.notifications.soundPreset = 'custom';
+          settings.notifications.customFileName = file.name;
+          await chrome.storage.local.set({ handSignSettings: settings });
+        } else {
+          // 通常の音声カスタム
+          await chrome.runtime.sendMessage({
+            type: 'SAVE_SOUND',
+            id: type,
+            data: base64Data,
+            fileName: file.name,
+            mimeType: file.type
+          });
+
+          // soundSettingsも更新
+          soundSettings.sounds = soundSettings.sounds || {};
+          soundSettings.sounds[type] = {
+            mode: 'custom',
+            customFileName: file.name
+          };
+        }
+
+        showTimerToast('カスタム音声を設定しました');
+
+        // UIを再描画
+        await loadSoundSettingsData();
+        renderSoundSettings();
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('[HandSign] Failed to upload sound:', error);
+      showTimerToast('アップロードに失敗しました');
+    }
+
+    // ファイル入力をリセット
+    e.target.value = '';
+  }
+
+  /**
+   * カスタム音声削除ハンドラー
+   */
+  async function handleSoundCustomDelete(e) {
+    const type = e.target.closest('.rsc-sound-custom-delete').dataset.type;
+
+    try {
+      if (type === 'notification') {
+        await chrome.runtime.sendMessage({ type: 'DELETE_NOTIFICATION_CUSTOM_SOUND' });
+
+        settings.notifications = settings.notifications || {};
+        settings.notifications.soundPreset = 'outgoing:outgoing_horn';
+        settings.notifications.customFileName = null;
+        await chrome.storage.local.set({ handSignSettings: settings });
+      } else {
+        await chrome.runtime.sendMessage({ type: 'DELETE_SOUND', id: type });
+
+        soundSettings.sounds = soundSettings.sounds || {};
+        soundSettings.sounds[type] = { mode: 'original' };
+      }
+
+      showTimerToast('カスタム音声を削除しました');
+
+      // UIを再描画
+      await loadSoundSettingsData();
+      renderSoundSettings();
+    } catch (error) {
+      console.error('[HandSign] Failed to delete custom sound:', error);
     }
   }
 
