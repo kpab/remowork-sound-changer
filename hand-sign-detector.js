@@ -3228,14 +3228,22 @@
     try {
       const presetsResponse = await chrome.runtime.sendMessage({ type: 'GET_PRESET_SOUNDS' });
       if (presetsResponse && presetsResponse.success && presetsResponse.data) {
+        // カテゴリ名の日本語マッピング
+        const categoryNames = {
+          calling: '発信中（呼び出し音）',
+          incoming: '着信音',
+          outgoing: '発信音',
+          disconnect: '切断音',
+          doorchime: 'ドアチャイム'
+        };
         for (const [category, sounds] of Object.entries(presetsResponse.data)) {
           if (Array.isArray(sounds) && sounds.length > 0) {
             const optgroup = document.createElement('optgroup');
-            optgroup.label = category;
+            optgroup.label = categoryNames[category] || category;
             sounds.forEach(sound => {
               const option = document.createElement('option');
               option.value = `${category}:${sound.id}`;
-              option.textContent = sound.name;
+              option.textContent = sound.label || sound.name || sound.id;
               optgroup.appendChild(option);
             });
             soundSelect.appendChild(optgroup);
