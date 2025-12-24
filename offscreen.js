@@ -162,10 +162,156 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true;
 
+    // 文字起こし関連
+    case 'START_TRANSCRIPTION':
+      sendResponse(startTranscription());
+      return true;
+
+    case 'STOP_TRANSCRIPTION':
+      sendResponse(stopTranscription());
+      return true;
+
+    case 'GET_TRANSCRIPT':
+      sendResponse(getTranscript());
+      return true;
+
     default:
       return false;
   }
 });
+
+// =============================================
+// 文字起こし機能 (Web Speech API)
+// =============================================
+
+let speechRecognition = null;
+let isTranscribing = false;
+let transcriptText = '';
+
+/**
+ * 文字起こしを開始
+ */
+function startTranscription() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('[Offscreen] Web Speech API not supported');
+    return { success: false, error: 'Web Speech API not supported' };
+  }
+
+  if (isTranscribing) {
+    return { success: true, message: 'Already transcribing' };
+  }
+
+  transcriptText = '';
+  isTranscribing = true;
+
+  speechRecognition = new SpeechRecognition();
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = true;
+  speechRecognition.lang = 'ja-JP';
+
+  speechRecognition.onresult = (event) => {
+    let interimTranscript = '';
+    let finalTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    if (finalTranscript) {
+      transcriptText += finalTranscript + '\n';
+    }
+
+    // Content Scriptに結果を送信
+    chrome.runtime.sendMessage({
+      type: 'TRANSCRIPTION_RESULT',
+      transcript: transcriptText,
+      interim: interimTranscript,
+      isFinal: !!finalTranscript
+    });
+  };
+
+  speechRecognition.onerror = (event) => {
+    console.warn('[Offscreen] Speech recognition error:', event.error);
+
+    if (event.error === 'network') {
+      isTranscribing = false;
+      chrome.runtime.sendMessage({
+        type: 'TRANSCRIPTION_ERROR',
+        error: 'network',
+        message: 'ネットワークエラー：文字起こし利用不可'
+      });
+      return;
+    }
+
+    if (event.error === 'not-allowed') {
+      isTranscribing = false;
+      chrome.runtime.sendMessage({
+        type: 'TRANSCRIPTION_ERROR',
+        error: 'not-allowed',
+        message: 'マイクへのアクセスが拒否されました'
+      });
+      return;
+    }
+
+    // no-speechエラーの場合は再起動
+    if (event.error === 'no-speech' && isTranscribing) {
+      setTimeout(() => {
+        if (isTranscribing && speechRecognition) {
+          try {
+            speechRecognition.start();
+          } catch (e) {}
+        }
+      }, 100);
+    }
+  };
+
+  speechRecognition.onend = () => {
+    // まだ文字起こし中なら再開
+    if (isTranscribing) {
+      try {
+        speechRecognition.start();
+      } catch (e) {}
+    }
+  };
+
+  try {
+    speechRecognition.start();
+    console.log('[Offscreen] Transcription started');
+    return { success: true };
+  } catch (e) {
+    console.error('[Offscreen] Failed to start transcription:', e);
+    isTranscribing = false;
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 文字起こしを停止
+ */
+function stopTranscription() {
+  isTranscribing = false;
+  if (speechRecognition) {
+    try {
+      speechRecognition.stop();
+    } catch (e) {}
+    speechRecognition = null;
+  }
+  console.log('[Offscreen] Transcription stopped');
+  return { success: true, transcript: transcriptText };
+}
+
+/**
+ * 現在の文字起こしテキストを取得
+ */
+function getTranscript() {
+  return { success: true, transcript: transcriptText, isTranscribing };
+}
 
 // 初期化を開始
 initDetector();

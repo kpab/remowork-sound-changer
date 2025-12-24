@@ -336,6 +336,19 @@ async function handleMessage(message) {
       const statusResult = await sendToOffscreen({ type: 'GET_STATUS' });
       return statusResult;
 
+    // 文字起こし関連
+    case 'START_TRANSCRIPTION':
+      const startResult = await sendToOffscreen({ type: 'START_TRANSCRIPTION' });
+      return startResult;
+
+    case 'STOP_TRANSCRIPTION':
+      const stopResult = await sendToOffscreen({ type: 'STOP_TRANSCRIPTION' });
+      return stopResult;
+
+    case 'GET_TRANSCRIPT':
+      const transcriptResult = await sendToOffscreen({ type: 'GET_TRANSCRIPT' });
+      return transcriptResult;
+
     default:
       return { success: false, error: 'Unknown message type' };
   }

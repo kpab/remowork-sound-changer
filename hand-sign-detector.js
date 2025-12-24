@@ -1408,8 +1408,7 @@
   let currentPlayingAudio = null;
   let currentPlayingId = null;
 
-  // 文字起こし関連（Web Speech API）
-  let speechRecognition = null;
+  // 文字起こし関連（Offscreen API経由）
   let transcriptText = '';
   let isTranscribing = false;
 
@@ -2579,22 +2578,10 @@
     }
   }
 
-  // 文字起こしリトライ管理
-  let transcriptionRetryCount = 0;
-  const MAX_TRANSCRIPTION_RETRIES = 3;
-  let transcriptionHasNetworkError = false;
-
   /**
-   * 文字起こしを開始（Web Speech API）
+   * 文字起こしを開始（Offscreen API経由）
    */
-  function startTranscription() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[HandSign] Web Speech API not supported');
-      updateTranscriptDisplay('（このブラウザは文字起こしに対応していません）');
-      return;
-    }
-
+  async function startTranscription() {
     const toggleCheckbox = toolsModal?.querySelector('.rsc-transcript-toggle');
     if (toggleCheckbox && !toggleCheckbox.checked) {
       return; // 文字起こしがOFFの場合
@@ -2602,107 +2589,41 @@
 
     transcriptText = '';
     isTranscribing = true;
-    transcriptionRetryCount = 0;
-    transcriptionHasNetworkError = false;
-
-    speechRecognition = new SpeechRecognition();
-    speechRecognition.continuous = true;
-    speechRecognition.interimResults = true;
-    speechRecognition.lang = 'ja-JP';
-
-    speechRecognition.onresult = (event) => {
-      // 成功したらリトライカウントをリセット
-      transcriptionRetryCount = 0;
-      transcriptionHasNetworkError = false;
-
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      if (finalTranscript) {
-        transcriptText += finalTranscript + '\n';
-      }
-
-      updateTranscriptDisplay(transcriptText + interimTranscript);
-    };
-
-    speechRecognition.onerror = (event) => {
-      console.warn('[HandSign] Speech recognition error:', event.error);
-
-      if (event.error === 'network') {
-        // ネットワークエラー：再起動しない
-        transcriptionHasNetworkError = true;
-        updateTranscriptDisplay('（ネットワークエラー：文字起こし利用不可）\n\n手動でメモを入力してください。');
-        return;
-      }
-
-      if (event.error === 'not-allowed') {
-        updateTranscriptDisplay('（マイクへのアクセスが拒否されました）');
-        return;
-      }
-
-      if (event.error === 'no-speech' && isTranscribing && !transcriptionHasNetworkError) {
-        // 無音の場合は再起動（リトライ制限なし - これは正常動作）
-        setTimeout(() => {
-          if (isTranscribing && speechRecognition) {
-            try {
-              speechRecognition.start();
-            } catch (e) {}
-          }
-        }, 100);
-      }
-    };
-
-    speechRecognition.onend = () => {
-      // ネットワークエラーが発生していたら再起動しない
-      if (transcriptionHasNetworkError) {
-        return;
-      }
-
-      // 録音中かつリトライ回数内なら再開
-      if (isTranscribing) {
-        transcriptionRetryCount++;
-        if (transcriptionRetryCount > MAX_TRANSCRIPTION_RETRIES) {
-          console.warn('[HandSign] Transcription max retries reached, stopping');
-          updateTranscriptDisplay(transcriptText + '\n（文字起こしが停止しました）');
-          return;
-        }
-
-        try {
-          speechRecognition.start();
-        } catch (e) {}
-      }
-    };
+    updateTranscriptDisplay('文字起こしを開始しています...');
 
     try {
-      speechRecognition.start();
-      console.log('[HandSign] Transcription started');
+      const result = await chrome.runtime.sendMessage({ type: 'START_TRANSCRIPTION' });
+      if (result.success) {
+        console.log('[HandSign] Transcription started via offscreen');
+        updateTranscriptDisplay('');
+      } else {
+        console.error('[HandSign] Failed to start transcription:', result.error);
+        updateTranscriptDisplay('（文字起こしを開始できませんでした）');
+        isTranscribing = false;
+      }
     } catch (e) {
       console.error('[HandSign] Failed to start transcription:', e);
       updateTranscriptDisplay('（文字起こしを開始できませんでした）');
+      isTranscribing = false;
     }
   }
 
   /**
-   * 文字起こしを停止
+   * 文字起こしを停止（Offscreen API経由）
    */
-  function stopTranscription() {
+  async function stopTranscription() {
     isTranscribing = false;
-    if (speechRecognition) {
-      try {
-        speechRecognition.stop();
-      } catch (e) {}
-      speechRecognition = null;
+
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'STOP_TRANSCRIPTION' });
+      if (result.success && result.transcript) {
+        transcriptText = result.transcript;
+        updateTranscriptDisplay(transcriptText);
+      }
+      console.log('[HandSign] Transcription stopped via offscreen');
+    } catch (e) {
+      console.error('[HandSign] Failed to stop transcription:', e);
     }
-    console.log('[HandSign] Transcription stopped');
   }
 
   /**
@@ -3060,6 +2981,30 @@
 
   // メッセージを受信
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // 文字起こし結果を受信（Offscreenから）
+    if (message.type === 'TRANSCRIPTION_RESULT') {
+      if (isTranscribing) {
+        transcriptText = message.transcript;
+        const displayText = message.transcript + (message.interim || '');
+        updateTranscriptDisplay(displayText);
+      }
+      return false;
+    }
+
+    // 文字起こしエラーを受信（Offscreenから）
+    if (message.type === 'TRANSCRIPTION_ERROR') {
+      console.warn('[HandSign] Transcription error from offscreen:', message.error);
+      isTranscribing = false;
+      if (message.error === 'network') {
+        updateTranscriptDisplay('（ネットワークエラー：文字起こし利用不可）\n\n手動でメモを入力してください。');
+      } else if (message.error === 'not-allowed') {
+        updateTranscriptDisplay('（マイクへのアクセスが拒否されました）');
+      } else {
+        updateTranscriptDisplay(`（文字起こしエラー: ${message.message || message.error}）`);
+      }
+      return false;
+    }
+
     // 通知音再生
     if (message.type === 'PLAY_NOTIFICATION_SOUND' && message.url) {
       const audio = new Audio(message.url);
