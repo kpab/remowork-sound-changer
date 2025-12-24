@@ -17,6 +17,8 @@
   let recordings = [];
   let audioContext = null;
   let audioDestination = null;
+  let currentPlayingAudio = null;
+  let currentPlayingId = null;
 
   /**
    * レコーダーUIを作成
@@ -349,6 +351,7 @@
     let html = '<div class="rsc-recorder-recordings-title">録音履歴</div>';
 
     for (const recording of recordings.slice(0, 5)) { // 最新5件を表示
+      const isPlaying = currentPlayingId === recording.id;
       html += `
         <div class="rsc-recording-item" data-id="${recording.id}">
           <div class="rsc-recording-info">
@@ -356,9 +359,12 @@
             <span class="rsc-recording-meta">${recording.duration}</span>
           </div>
           <div class="rsc-recording-actions">
-            <button class="rsc-recording-btn rsc-recording-play" title="再生">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <button class="rsc-recording-btn rsc-recording-play ${isPlaying ? 'playing' : ''}" title="${isPlaying ? '停止' : '再生'}">
+              <svg class="icon-play" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="${isPlaying ? 'display:none' : ''}">
                 <path d="M8 5v14l11-7z"/>
+              </svg>
+              <svg class="icon-stop" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="${isPlaying ? '' : 'display:none'}">
+                <path d="M6 6h12v12H6z"/>
               </svg>
             </button>
             <button class="rsc-recording-btn rsc-recording-download" title="ダウンロード">
@@ -417,6 +423,11 @@
       return;
     }
 
+    // 再生中なら停止
+    if (currentPlayingId === id) {
+      stopPlayback();
+    }
+
     // 配列から削除
     recordings.splice(index, 1);
 
@@ -453,18 +464,56 @@
   }
 
   /**
+   * 再生を停止する共通関数
+   */
+  function stopPlayback() {
+    if (currentPlayingAudio) {
+      currentPlayingAudio.pause();
+      currentPlayingAudio.currentTime = 0;
+      URL.revokeObjectURL(currentPlayingAudio.src);
+      currentPlayingAudio = null;
+    }
+    currentPlayingId = null;
+    updateRecordingsList();
+  }
+
+  /**
    * 録音を再生
    */
   function playRecording(id) {
+    // 同じ録音を再生中なら停止
+    if (currentPlayingId === id) {
+      stopPlayback();
+      return;
+    }
+
+    // 他の再生を停止
+    stopPlayback();
+
     const recording = recordings.find(r => r.id === id);
     if (!recording) return;
 
     const url = URL.createObjectURL(recording.blob);
     const audio = new Audio(url);
+    currentPlayingAudio = audio;
+    currentPlayingId = id;
+
+    updateRecordingsList();
+
     audio.play();
 
     audio.onended = () => {
       URL.revokeObjectURL(url);
+      currentPlayingAudio = null;
+      currentPlayingId = null;
+      updateRecordingsList();
+    };
+
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      currentPlayingAudio = null;
+      currentPlayingId = null;
+      updateRecordingsList();
     };
   }
 
