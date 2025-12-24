@@ -2307,6 +2307,13 @@
     if (initialTab === 'camera') {
       startCamera();
     }
+
+    // 録音タブを開く場合、既に録音中ならUIを更新
+    if (initialTab === 'recorder' && mediaRecorder && mediaRecorder.state !== 'inactive') {
+      updateRecorderUI(mediaRecorder.state === 'paused' ? 'paused' : 'recording');
+      startRecorderTimer();
+      showRecorderInfo('録音中（マイク）');
+    }
   }
 
   /**
