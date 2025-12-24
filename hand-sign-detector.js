@@ -1716,9 +1716,15 @@
         border-radius: 12px;
         overflow: hidden;
         margin-bottom: 16px;
+        aspect-ratio: 4 / 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       #rsc-camera-video {
         width: 100%;
+        height: 100%;
+        object-fit: cover;
         display: block;
         transform: scaleX(-1);
       }
