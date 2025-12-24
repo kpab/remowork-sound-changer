@@ -427,7 +427,7 @@
             <span class="rsc-recording-meta">${recording.duration}</span>
           </div>
           <div class="rsc-recording-actions">
-            <button class="rsc-recording-btn rsc-recording-play ${isPlaying ? 'playing' : ''}" title="${isPlaying ? '停止' : '再生'}">
+            <button class="rsc-recording-btn rsc-recording-play ${isPlaying ? 'playing' : ''}" data-id="${recording.id}" title="${isPlaying ? '停止' : '再生'}">
               <svg class="icon-play" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="${isPlaying ? 'display:none' : ''}">
                 <path d="M8 5v14l11-7z"/>
               </svg>
@@ -435,12 +435,12 @@
                 <path d="M6 6h12v12H6z"/>
               </svg>
             </button>
-            <button class="rsc-recording-btn rsc-recording-download" title="ダウンロード">
+            <button class="rsc-recording-btn rsc-recording-download" data-id="${recording.id}" title="ダウンロード">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
               </svg>
             </button>
-            <button class="rsc-recording-btn rsc-recording-delete" title="削除">
+            <button class="rsc-recording-btn rsc-recording-delete" data-id="${recording.id}" title="削除">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
               </svg>
@@ -455,7 +455,10 @@
     // ダウンロードボタンのイベント
     container.querySelectorAll('.rsc-recording-download').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const id = parseInt(e.target.closest('.rsc-recording-item').dataset.id);
+        e.preventDefault();
+        e.stopPropagation();
+        const button = e.currentTarget;
+        const id = parseInt(button.dataset.id);
         downloadRecording(id);
       });
     });
@@ -463,7 +466,11 @@
     // 再生ボタンのイベント
     container.querySelectorAll('.rsc-recording-play').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const id = parseInt(e.target.closest('.rsc-recording-item').dataset.id);
+        e.preventDefault();
+        e.stopPropagation();
+        const button = e.currentTarget;
+        const id = parseInt(button.dataset.id);
+        console.log('[RemoworkRecorder] Play button clicked, id:', id);
         playRecording(id);
       });
     });
@@ -471,7 +478,10 @@
     // 削除ボタンのイベント
     container.querySelectorAll('.rsc-recording-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const id = parseInt(e.target.closest('.rsc-recording-item').dataset.id);
+        e.preventDefault();
+        e.stopPropagation();
+        const button = e.currentTarget;
+        const id = parseInt(button.dataset.id);
         deleteRecording(id);
       });
     });
