@@ -36,6 +36,9 @@
   // オフスクリーンAPI経由でハンド検出
   let isDetectorReady = false;
 
+  // LLM設定（自動構造化用）
+  let llmSettings = null;
+
   /**
    * 拡張機能コンテキストが有効かチェック
    */
@@ -1405,6 +1408,11 @@
       console.log('[HandSign] Settings updated:', settings);
       updateTimerVisibility();
     }
+    // LLM設定の変更を監視（APIキー変更時にリロード不要に）
+    if (namespace === 'local' && changes.llmSettings) {
+      llmSettings = changes.llmSettings.newValue;
+      console.log('[HandSign] LLM settings updated:', llmSettings?.enabled ? 'enabled' : 'disabled');
+    }
   });
 
   // 統合モーダル関連
@@ -1429,6 +1437,39 @@
   // 文字起こし関連（ページコンテキスト inject.js 経由）
   let transcriptText = '';
   let isTranscribing = false;
+
+  // 自動構造化関連
+  let structureInterval = null;
+  let lastStructuredText = '';
+
+  // レート制限管理（Gemini無料枠: 15 RPM / 250 RPD）
+  const RATE_LIMIT = {
+    gemini: {
+      rpm: 14,           // 15 RPM - 1マージン
+      rpd: 240,          // 250 RPD - 10マージン
+      minInterval: 4500  // 60秒/14 ≈ 4.3秒 → 4.5秒
+    },
+    openai: {
+      rpm: 60,
+      rpd: 10000,
+      minInterval: 1000
+    },
+    claude: {
+      rpm: 60,
+      rpd: 10000,
+      minInterval: 1000
+    },
+    custom: {
+      rpm: 60,
+      rpd: 10000,
+      minInterval: 1000
+    }
+  };
+  let lastRequestTime = 0;
+  let requestCountToday = 0;
+  let requestCountMinute = 0;
+  let lastMinuteReset = Date.now();
+  let nextRequestCountdown = null;
 
   /**
    * 統合モーダルを作成（撮影 + 録音）
@@ -1521,25 +1562,36 @@
             <div class="rsc-notes-section">
               <div class="rsc-notes-header">
                 <span class="rsc-notes-title">✏️ メモ</span>
+                <button class="rsc-copy-btn" data-target="manual-notes" title="コピー">📋</button>
               </div>
               <textarea class="rsc-manual-notes" placeholder="メモを入力..."></textarea>
             </div>
             <div class="rsc-notes-section">
               <div class="rsc-notes-header">
                 <span class="rsc-notes-title">🤖 自動構造化メモ</span>
-                <span class="rsc-dev-badge">開発中</span>
+                <div class="rsc-structure-controls">
+                  <span class="rsc-rate-limit-status"></span>
+                  <button class="rsc-structure-btn" title="今すぐ構造化">🔄</button>
+                  <button class="rsc-copy-btn" data-target="structured-notes" title="コピー">📋</button>
+                </div>
               </div>
-              <div class="rsc-structured-notes-area">（開発中）</div>
+              <div class="rsc-structured-notes-area">（AIタブで設定後、録音中に自動構造化されます）</div>
             </div>
             <div class="rsc-notes-section">
               <div class="rsc-notes-header">
                 <span class="rsc-notes-title">📝 文字起こし</span>
-                <label class="rsc-notes-toggle">
-                  <input type="checkbox" class="rsc-transcript-toggle" checked>
-                  <span>自動文字起こし</span>
-                </label>
+                <div class="rsc-transcript-controls">
+                  <label class="rsc-notes-toggle">
+                    <input type="checkbox" class="rsc-transcript-toggle" checked>
+                    <span>自動文字起こし</span>
+                  </label>
+                  <button class="rsc-copy-btn" data-target="transcript" title="コピー">📋</button>
+                </div>
               </div>
               <div class="rsc-transcript-area" contenteditable="false"></div>
+            </div>
+            <div class="rsc-notes-actions">
+              <button class="rsc-copy-all-btn" title="全てコピー">📋 全てコピー</button>
             </div>
           </div>
         </div>
@@ -2018,14 +2070,114 @@
         border-radius: 4px;
         margin-left: 8px;
       }
+      .rsc-structure-btn {
+        background: rgba(72, 187, 120, 0.2);
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #48bb78;
+        margin-left: auto;
+      }
+      .rsc-structure-btn:hover {
+        background: rgba(72, 187, 120, 0.3);
+      }
+      .rsc-structure-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .rsc-structure-btn.loading {
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
       .rsc-structured-notes-area {
         background: rgba(0,0,0,0.2);
         border-radius: 6px;
         padding: 10px;
-        min-height: 40px;
+        min-height: 60px;
         font-size: 13px;
+        color: #e2e8f0;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        font-family: monospace;
+      }
+      .rsc-structured-notes-area.placeholder {
         color: #718096;
-        line-height: 1.5;
+        min-height: 40px;
+      }
+      .rsc-structure-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .rsc-rate-limit-status {
+        font-size: 11px;
+        color: #a0aec0;
+      }
+      .rsc-rate-limit-status.waiting {
+        color: #f6ad55;
+      }
+      .rsc-rate-limit-status.ready {
+        color: #68d391;
+      }
+      .rsc-rate-limit-status .countdown {
+        font-weight: bold;
+        font-family: monospace;
+      }
+      .rsc-rate-limit-status .request-count {
+        color: #718096;
+        font-size: 10px;
+      }
+      .rsc-copy-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 4px 6px;
+        border-radius: 4px;
+        opacity: 0.7;
+        transition: all 0.2s;
+      }
+      .rsc-copy-btn:hover {
+        opacity: 1;
+        background: rgba(255,255,255,0.1);
+      }
+      .rsc-copy-btn.copied {
+        color: #68d391;
+      }
+      .rsc-transcript-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .rsc-notes-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        margin-top: 10px;
+      }
+      .rsc-copy-all-btn {
+        background: rgba(99, 102, 241, 0.2);
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        color: #a5b4fc;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s;
+      }
+      .rsc-copy-all-btn:hover {
+        background: rgba(99, 102, 241, 0.3);
+      }
+      .rsc-copy-all-btn.copied {
+        background: rgba(72, 187, 120, 0.2);
+        border-color: rgba(72, 187, 120, 0.4);
+        color: #68d391;
       }
       .rsc-recorder-recordings {
         max-height: 200px;
@@ -2108,7 +2260,88 @@
       btn.addEventListener('click', () => deleteAllImages(btn.dataset.type));
     });
 
+    // 構造化ボタン
+    const structureBtn = toolsModal.querySelector('.rsc-structure-btn');
+    if (structureBtn) {
+      structureBtn.addEventListener('click', async () => {
+        if (!llmSettings) {
+          try {
+            const response = await chrome.runtime.sendMessage({ type: 'GET_LLM_SETTINGS' });
+            if (response?.success && response.data) {
+              llmSettings = response.data;
+            }
+          } catch (error) {
+            console.warn('[HandSign] Failed to get LLM settings:', error);
+          }
+        }
+
+        if (!llmSettings?.enabled || !llmSettings?.apiKey) {
+          const structuredArea = toolsModal.querySelector('.rsc-structured-notes-area');
+          if (structuredArea) {
+            structuredArea.textContent = '⚠️ 拡張機能のポップアップ → AIタブでAPIキーを設定してください';
+          }
+          return;
+        }
+
+        await structureCurrentTranscript();
+      });
+    }
+
+    // コピーボタン（個別）
+    toolsModal.querySelectorAll('.rsc-copy-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const target = btn.dataset.target;
+        let text = '';
+
+        if (target === 'manual-notes') {
+          text = toolsModal.querySelector('.rsc-manual-notes')?.value || '';
+        } else if (target === 'structured-notes') {
+          text = toolsModal.querySelector('.rsc-structured-notes-area')?.textContent || '';
+        } else if (target === 'transcript') {
+          text = toolsModal.querySelector('.rsc-transcript-area')?.textContent || '';
+        }
+
+        if (text && !text.startsWith('（')) {
+          await copyToClipboard(text, btn);
+        }
+      });
+    });
+
+    // 全てコピーボタン
+    const copyAllBtn = toolsModal.querySelector('.rsc-copy-all-btn');
+    if (copyAllBtn) {
+      copyAllBtn.addEventListener('click', async () => {
+        const allText = getMeetingNotesText();
+        if (allText.trim()) {
+          await copyToClipboard(allText, copyAllBtn);
+        }
+      });
+    }
+
     return toolsModal;
+  }
+
+  /**
+   * クリップボードにコピー
+   */
+  async function copyToClipboard(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+
+      // ボタンのフィードバック
+      const originalText = btn.textContent;
+      btn.textContent = '✅';
+      btn.classList.add('copied');
+
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.classList.remove('copied');
+      }, 1500);
+
+      console.log('[HandSign] Copied to clipboard');
+    } catch (error) {
+      console.error('[HandSign] Failed to copy:', error);
+    }
   }
 
   /**
@@ -2236,6 +2469,13 @@
     images[type].splice(index, 1);
     await chrome.storage.local.set({ virtualCameraImages: images });
 
+    // virtual-camera.jsにリアルタイムで通知
+    window.postMessage({
+      source: 'remowork-virtual-camera',
+      type: 'LOAD_IMAGES',
+      payload: { images: images }
+    }, '*');
+
     // UIを更新
     updateImageCounts();
 
@@ -2262,6 +2502,13 @@
     // 全削除
     images[type] = [];
     await chrome.storage.local.set({ virtualCameraImages: images });
+
+    // virtual-camera.jsにリアルタイムで通知
+    window.postMessage({
+      source: 'remowork-virtual-camera',
+      type: 'LOAD_IMAGES',
+      payload: { images: images }
+    }, '*');
 
     // UIを更新
     updateImageCounts();
@@ -2504,6 +2751,14 @@
       // 枚数を更新
       updateImageCounts();
 
+      // virtual-camera.jsにリアルタイムで画像を送信
+      window.postMessage({
+        source: 'remowork-virtual-camera',
+        type: 'LOAD_IMAGES',
+        payload: { images: images }
+      }, '*');
+      console.log('[HandSign] Sent LOAD_IMAGES to virtual-camera.js');
+
       // 成功をポップアップに通知
       chrome.runtime.sendMessage({
         type: 'CAMERA_CAPTURE_SUCCESS',
@@ -2561,6 +2816,9 @@
 
       // 文字起こしを開始
       startTranscription();
+
+      // 自動構造化を開始
+      startAutoStructure();
 
       console.log('[HandSign] Recording started');
 
@@ -2675,6 +2933,7 @@
       mediaRecorder.stop();
       stopRecorderTimer();
       stopTranscription();
+      stopAutoStructure();
       releaseRecordingStream();
       updateRecorderUI('idle');
     }
@@ -2771,24 +3030,262 @@
    */
   function clearMeetingNotes() {
     transcriptText = '';
+    lastStructuredText = '';
     const transcriptArea = toolsModal?.querySelector('.rsc-transcript-area');
     const manualNotes = toolsModal?.querySelector('.rsc-manual-notes');
+    const structuredArea = toolsModal?.querySelector('.rsc-structured-notes-area');
     if (transcriptArea) transcriptArea.textContent = '';
     if (manualNotes) manualNotes.value = '';
+    if (structuredArea) {
+      structuredArea.textContent = '（AIタブで設定後、録音中に自動構造化されます）';
+      structuredArea.classList.add('placeholder');
+    }
   }
 
   /**
-   * 現在のメモを取得
+   * レート制限をチェック（リクエスト可能か判定）
+   */
+  function canMakeRequest() {
+    const provider = llmSettings?.provider || 'gemini';
+    const limits = RATE_LIMIT[provider] || RATE_LIMIT.gemini;
+    const now = Date.now();
+
+    // 1分経過していたらリセット
+    if (now - lastMinuteReset > 60000) {
+      requestCountMinute = 0;
+      lastMinuteReset = now;
+    }
+
+    // RPMチェック
+    if (requestCountMinute >= limits.rpm) {
+      return { allowed: false, reason: 'rpm', waitMs: 60000 - (now - lastMinuteReset) };
+    }
+
+    // RPDチェック（Geminiのみ厳密に管理）
+    if (provider === 'gemini' && requestCountToday >= limits.rpd) {
+      return { allowed: false, reason: 'rpd', waitMs: 0 };
+    }
+
+    // 最小間隔チェック
+    const elapsed = now - lastRequestTime;
+    if (elapsed < limits.minInterval) {
+      return { allowed: false, reason: 'interval', waitMs: limits.minInterval - elapsed };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * リクエスト送信を記録
+   */
+  function recordRequest() {
+    lastRequestTime = Date.now();
+    requestCountMinute++;
+    requestCountToday++;
+    updateRateLimitUI();
+  }
+
+  /**
+   * レート制限UIを更新
+   */
+  function updateRateLimitUI() {
+    const provider = llmSettings?.provider || 'gemini';
+    const limits = RATE_LIMIT[provider] || RATE_LIMIT.gemini;
+    const statusEl = toolsModal?.querySelector('.rsc-rate-limit-status');
+
+    if (!statusEl) return;
+
+    const now = Date.now();
+    const nextAvailable = lastRequestTime + limits.minInterval;
+    const remaining = Math.max(0, nextAvailable - now);
+
+    if (remaining > 0) {
+      statusEl.innerHTML = `⏳ 次の送信まで: <span class="countdown">${Math.ceil(remaining / 1000)}秒</span>`;
+      statusEl.className = 'rsc-rate-limit-status waiting';
+    } else {
+      statusEl.innerHTML = `✅ 送信可能 <span class="request-count">(本日: ${requestCountToday}/${limits.rpd})</span>`;
+      statusEl.className = 'rsc-rate-limit-status ready';
+    }
+  }
+
+  /**
+   * カウントダウンタイマーを開始
+   */
+  function startCountdownTimer() {
+    if (nextRequestCountdown) {
+      clearInterval(nextRequestCountdown);
+    }
+    nextRequestCountdown = setInterval(() => {
+      updateRateLimitUI();
+    }, 1000);
+  }
+
+  /**
+   * カウントダウンタイマーを停止
+   */
+  function stopCountdownTimer() {
+    if (nextRequestCountdown) {
+      clearInterval(nextRequestCountdown);
+      nextRequestCountdown = null;
+    }
+  }
+
+  /**
+   * 自動構造化を開始
+   */
+  async function startAutoStructure() {
+    // LLM設定を取得
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_LLM_SETTINGS' });
+      if (response?.success && response.data) {
+        llmSettings = response.data;
+      }
+    } catch (error) {
+      console.warn('[HandSign] Failed to get LLM settings:', error);
+    }
+
+    if (!llmSettings?.enabled || !llmSettings?.apiKey) {
+      console.log('[HandSign] Auto structure disabled or no API key');
+      return;
+    }
+
+    if (!llmSettings.autoStructure) {
+      console.log('[HandSign] Auto structure is off');
+      return;
+    }
+
+    // カウントダウンタイマー開始
+    startCountdownTimer();
+
+    // 30秒ごとに構造化（レート制限を考慮）
+    structureInterval = setInterval(async () => {
+      const rateCheck = canMakeRequest();
+      if (!rateCheck.allowed) {
+        console.log(`[HandSign] Rate limited (${rateCheck.reason}), waiting ${Math.ceil(rateCheck.waitMs / 1000)}s`);
+        return;
+      }
+      if (transcriptText && transcriptText !== lastStructuredText && transcriptText.length > 50) {
+        await structureCurrentTranscript();
+      }
+    }, 30000);
+
+    console.log('[HandSign] Auto structure started');
+  }
+
+  /**
+   * 自動構造化を停止
+   */
+  function stopAutoStructure() {
+    if (structureInterval) {
+      clearInterval(structureInterval);
+      structureInterval = null;
+    }
+    stopCountdownTimer();
+    console.log('[HandSign] Auto structure stopped');
+  }
+
+  /**
+   * 現在の文字起こしを構造化
+   */
+  async function structureCurrentTranscript() {
+    // レート制限チェック（手動ボタン押下時）
+    const rateCheck = canMakeRequest();
+    if (!rateCheck.allowed) {
+      const structuredArea = toolsModal?.querySelector('.rsc-structured-notes-area');
+      if (structuredArea) {
+        if (rateCheck.reason === 'rpd') {
+          structuredArea.textContent = '本日のリクエスト上限に達しました';
+        } else {
+          structuredArea.textContent = `⏳ ${Math.ceil(rateCheck.waitMs / 1000)}秒後に再試行してください`;
+        }
+      }
+      return;
+    }
+
+    const manualNotes = toolsModal?.querySelector('.rsc-manual-notes')?.value || '';
+    const hasTranscript = transcriptText && transcriptText.trim().length > 0;
+    const hasNotes = manualNotes.trim().length > 0;
+
+    if (!hasTranscript && !hasNotes) {
+      const structuredArea = toolsModal?.querySelector('.rsc-structured-notes-area');
+      if (structuredArea) {
+        structuredArea.textContent = '（文字起こしまたはメモを入力してください）';
+      }
+      return;
+    }
+
+    // 文字起こしとメモを結合
+    let combinedInput = '';
+    if (hasTranscript) {
+      combinedInput += '【文字起こし】\n' + transcriptText.trim() + '\n\n';
+    }
+    if (hasNotes) {
+      combinedInput += '【手動メモ】\n' + manualNotes.trim();
+    }
+
+    const structuredArea = toolsModal?.querySelector('.rsc-structured-notes-area');
+    const structureBtn = toolsModal?.querySelector('.rsc-structure-btn');
+
+    if (structureBtn) {
+      structureBtn.classList.add('loading');
+      structureBtn.disabled = true;
+    }
+
+    // リクエスト送信を記録
+    recordRequest();
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'STRUCTURE_TRANSCRIPT',
+        transcript: combinedInput,
+        settings: llmSettings
+      });
+
+      if (response?.success && response.structured) {
+        lastStructuredText = transcriptText;
+        if (structuredArea) {
+          structuredArea.textContent = response.structured;
+          structuredArea.classList.remove('placeholder');
+          structuredArea.scrollTop = structuredArea.scrollHeight;
+        }
+        console.log('[HandSign] Transcript structured');
+      } else {
+        console.warn('[HandSign] Structure failed:', response?.error);
+        if (structuredArea && response?.error) {
+          structuredArea.textContent = `エラー: ${response.error}`;
+        }
+      }
+    } catch (error) {
+      console.error('[HandSign] Structure error:', error);
+    } finally {
+      if (structureBtn) {
+        structureBtn.classList.remove('loading');
+        structureBtn.disabled = false;
+      }
+    }
+  }
+
+  /**
+   * 現在のメモを取得（構造化メモ含む）
    */
   function getMeetingNotesText() {
     const manualNotes = toolsModal?.querySelector('.rsc-manual-notes')?.value || '';
+    const structuredNotes = toolsModal?.querySelector('.rsc-structured-notes-area')?.textContent || '';
     let text = '';
 
-    if (transcriptText.trim()) {
-      text += '【文字起こし】\n' + transcriptText.trim() + '\n\n';
+    // 構造化メモ（AIによる要約）を先頭に
+    if (structuredNotes.trim() && !structuredNotes.startsWith('（')) {
+      text += '【自動構造化メモ】\n' + structuredNotes.trim() + '\n\n';
     }
+
+    // 手動メモ
     if (manualNotes.trim()) {
-      text += '【メモ】\n' + manualNotes.trim() + '\n';
+      text += '【メモ】\n' + manualNotes.trim() + '\n\n';
+    }
+
+    // 文字起こし
+    if (transcriptText.trim()) {
+      text += '【文字起こし】\n' + transcriptText.trim() + '\n';
     }
 
     return text;

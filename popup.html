@@ -17,6 +17,7 @@
       <button class="tab-btn active" data-tab="sound">🔊 音声</button>
       <button class="tab-btn" data-tab="handsign">👋 検出</button>
       <button class="tab-btn" data-tab="virtual-camera">📷 送信</button>
+      <button class="tab-btn" data-tab="llm">🤖 AI</button>
     </nav>
 
     <!-- 音声設定タブ -->
@@ -176,6 +177,103 @@
           <p>3. Remoworkページのタイマー横のボタンで送信</p>
           <p>4. 写真が撮られたら自動で通常カメラに戻ります</p>
         </div>
+      </section>
+    </div>
+
+    <!-- LLM設定タブ -->
+    <div class="tab-content" id="tab-llm">
+      <div class="tab-header">
+        <span>🤖 AI構造化メモ</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="llm-enabled-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <section class="handsign-section">
+        <label class="section-label">LLMプロバイダー</label>
+        <select class="sound-mode" id="llm-provider">
+          <option value="gemini">Google Gemini（無料枠あり）</option>
+          <option value="openai">OpenAI（GPT-4o等）</option>
+          <option value="claude">Anthropic Claude</option>
+          <option value="custom">カスタムAPI</option>
+        </select>
+      </section>
+
+      <section class="handsign-section" id="llm-model-section">
+        <label class="section-label">モデル</label>
+        <select class="sound-mode" id="llm-model">
+          <!-- 動的に生成 -->
+        </select>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">APIキー</label>
+        <div class="api-key-input-wrapper">
+          <input type="password" class="text-input" id="llm-api-key" placeholder="APIキーを入力">
+          <button class="btn btn-icon" id="toggle-api-key-visibility" title="表示/非表示">
+            👁
+          </button>
+        </div>
+        <p class="note" id="llm-api-note">Geminiは無料枠で利用可能（15 RPM / 250 RPD）</p>
+      </section>
+
+      <section class="handsign-section" id="llm-custom-section" style="display: none;">
+        <label class="section-label">カスタムAPIエンドポイント</label>
+        <input type="text" class="text-input" id="llm-custom-endpoint" placeholder="https://api.example.com/v1/chat/completions">
+        <p class="note">OpenAI互換のエンドポイントを指定</p>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">構造化設定</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="llm-auto-structure" checked>
+            録音中に自動で構造化（30秒ごと）
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="llm-extract-actions" checked>
+            アクションアイテムを抽出
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="llm-extract-decisions" checked>
+            決定事項を抽出
+          </label>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">プロフィール情報（任意）</label>
+        <p class="note" style="margin-bottom: 8px;">漢字変換や文脈理解の精度向上に使用します</p>
+        <div class="profile-inputs">
+          <input type="text" class="text-input" id="llm-profile-name" placeholder="名前（例: 山田 太郎）">
+          <input type="text" class="text-input" id="llm-profile-company" placeholder="会社名（例: 株式会社サンプル）">
+          <input type="text" class="text-input" id="llm-profile-role" placeholder="役職（例: エンジニア）">
+          <textarea class="text-input" id="llm-profile-context" placeholder="その他の情報（よく使う専門用語、プロジェクト名など）" rows="2"></textarea>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">APIキーの取得方法</label>
+        <div class="usage-info">
+          <p><strong>Gemini（推奨・無料）:</strong></p>
+          <p>1. <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>にアクセス</p>
+          <p>2. 「Create API Key」をクリック</p>
+          <p>3. キーをコピーして上に貼り付け</p>
+          <br>
+          <p><strong>OpenAI:</strong></p>
+          <p><a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API Keys</a></p>
+          <br>
+          <p><strong>Claude:</strong></p>
+          <p><a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console</a></p>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <button class="btn btn-primary" id="test-llm-connection" style="width: 100%;">
+          🔌 接続テスト
+        </button>
+        <p class="note" id="llm-test-result" style="margin-top: 8px;"></p>
       </section>
     </div>
 

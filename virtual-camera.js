@@ -24,6 +24,15 @@
     thumbsup: []   // 👍 (最大12枚)
   };
 
+  // デフォルト画像（拡張機能のリソース）
+  let defaultImages = {
+    wave: null,
+    thumbsup: null
+  };
+
+  // 拡張機能のベースURL（Content Scriptから受け取る）
+  let extensionBaseUrl = '';
+
   console.log('[VirtualCamera] Initializing...');
 
   /**
@@ -141,6 +150,14 @@
       imageData = imageType;
     }
 
+    // デフォルト画像にフォールバック
+    if (!imageData && (imageType === 'wave' || imageType === 'thumbsup')) {
+      imageData = defaultImages[imageType];
+      if (imageData) {
+        console.log('[VirtualCamera] Using default image for type:', imageType);
+      }
+    }
+
     if (imageData) {
       currentVirtualImage = imageData;
       virtualCameraEnabled = true;
@@ -235,6 +252,26 @@
             thumbsup: registeredImages.thumbsup.length
           });
         }
+        break;
+
+      case 'SET_DEFAULT_IMAGES':
+        // デフォルト画像を設定（Base64形式）
+        if (payload.wave) {
+          defaultImages.wave = payload.wave;
+        }
+        if (payload.thumbsup) {
+          defaultImages.thumbsup = payload.thumbsup;
+        }
+        console.log('[VirtualCamera] Default images set:', {
+          wave: !!defaultImages.wave,
+          thumbsup: !!defaultImages.thumbsup
+        });
+        break;
+
+      case 'SET_EXTENSION_URL':
+        // 拡張機能のベースURLを設定
+        extensionBaseUrl = payload.url;
+        console.log('[VirtualCamera] Extension URL set:', extensionBaseUrl);
         break;
     }
   });

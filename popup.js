@@ -59,6 +59,48 @@ let handSignSettings = {
   }
 };
 
+// LLM設定
+let llmSettings = {
+  enabled: false,
+  provider: 'gemini',
+  model: 'gemini-2.0-flash',
+  apiKey: '',
+  customEndpoint: '',
+  autoStructure: true,
+  extractActions: true,
+  extractDecisions: true,
+  profile: {
+    name: '',
+    company: '',
+    role: '',
+    context: ''
+  }
+};
+
+// LLMモデルの定義
+const LLM_MODELS = {
+  gemini: [
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash（推奨）' },
+    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite（軽量）' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+  ],
+  openai: [
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini（推奨）' },
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+  ],
+  claude: [
+    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4（推奨）' },
+    { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku（高速）' },
+    { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' }
+  ],
+  custom: [
+    { id: 'custom', name: 'カスタムモデル' }
+  ]
+};
+
 /**
  * 初期化
  */
@@ -124,12 +166,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // LLM設定を読み込む
+  if (isExtension) {
+    try {
+      const llmResponse = await sendMessage({ type: 'GET_LLM_SETTINGS' });
+      console.log('[Popup] llmResponse:', llmResponse);
+      if (llmResponse && llmResponse.success && llmResponse.data) {
+        llmSettings = { ...llmSettings, ...llmResponse.data };
+      }
+    } catch (error) {
+      console.error('[Popup] Error loading LLM settings:', error);
+    }
+  }
+
   // UIを構築
   renderSoundList();
   setupEventListeners();
   setupTabNavigation();
   await setupHandSignSettings();
   setupVirtualCamera();
+  setupLLMSettings();
 
   // 有効/無効トグルの初期状態
   document.getElementById('enabled-toggle').checked = settings.enabled !== false;
@@ -1251,4 +1307,218 @@ if (isExtension) {
       }
     }
   });
+}
+
+/**
+ * LLM設定をセットアップ
+ */
+function setupLLMSettings() {
+  const enabledToggle = document.getElementById('llm-enabled-toggle');
+  const providerSelect = document.getElementById('llm-provider');
+  const modelSelect = document.getElementById('llm-model');
+  const apiKeyInput = document.getElementById('llm-api-key');
+  const toggleVisibilityBtn = document.getElementById('toggle-api-key-visibility');
+  const customEndpointInput = document.getElementById('llm-custom-endpoint');
+  const customSection = document.getElementById('llm-custom-section');
+  const apiNote = document.getElementById('llm-api-note');
+  const autoStructureCheckbox = document.getElementById('llm-auto-structure');
+  const extractActionsCheckbox = document.getElementById('llm-extract-actions');
+  const extractDecisionsCheckbox = document.getElementById('llm-extract-decisions');
+  const testConnectionBtn = document.getElementById('test-llm-connection');
+  const testResultEl = document.getElementById('llm-test-result');
+
+  // プロフィール入力欄
+  const profileNameInput = document.getElementById('llm-profile-name');
+  const profileCompanyInput = document.getElementById('llm-profile-company');
+  const profileRoleInput = document.getElementById('llm-profile-role');
+  const profileContextInput = document.getElementById('llm-profile-context');
+
+  // 初期値を設定
+  enabledToggle.checked = llmSettings.enabled;
+  providerSelect.value = llmSettings.provider;
+  apiKeyInput.value = llmSettings.apiKey || '';
+  customEndpointInput.value = llmSettings.customEndpoint || '';
+  autoStructureCheckbox.checked = llmSettings.autoStructure !== false;
+  extractActionsCheckbox.checked = llmSettings.extractActions !== false;
+  extractDecisionsCheckbox.checked = llmSettings.extractDecisions !== false;
+
+  // プロフィール情報を設定
+  const profile = llmSettings.profile || {};
+  profileNameInput.value = profile.name || '';
+  profileCompanyInput.value = profile.company || '';
+  profileRoleInput.value = profile.role || '';
+  profileContextInput.value = profile.context || '';
+
+  // モデルリストを更新
+  updateModelList(llmSettings.provider);
+  if (llmSettings.model) {
+    modelSelect.value = llmSettings.model;
+  }
+
+  // カスタムセクションの表示切替
+  customSection.style.display = llmSettings.provider === 'custom' ? 'block' : 'none';
+
+  // APIノートを更新
+  updateApiNote(llmSettings.provider);
+
+  // 有効/無効トグル
+  enabledToggle.addEventListener('change', async () => {
+    llmSettings.enabled = enabledToggle.checked;
+    await saveLLMSettings();
+    showToast(llmSettings.enabled ? 'AI構造化メモを有効化しました' : 'AI構造化メモを無効化しました');
+  });
+
+  // プロバイダー変更
+  providerSelect.addEventListener('change', async () => {
+    llmSettings.provider = providerSelect.value;
+    updateModelList(providerSelect.value);
+    llmSettings.model = modelSelect.value;
+    customSection.style.display = providerSelect.value === 'custom' ? 'block' : 'none';
+    updateApiNote(providerSelect.value);
+    await saveLLMSettings();
+  });
+
+  // モデル変更
+  modelSelect.addEventListener('change', async () => {
+    llmSettings.model = modelSelect.value;
+    await saveLLMSettings();
+  });
+
+  // APIキー変更
+  apiKeyInput.addEventListener('change', async () => {
+    llmSettings.apiKey = apiKeyInput.value.trim();
+    await saveLLMSettings();
+    showToast('APIキーを保存しました');
+  });
+
+  // APIキー表示/非表示
+  toggleVisibilityBtn.addEventListener('click', () => {
+    if (apiKeyInput.type === 'password') {
+      apiKeyInput.type = 'text';
+      toggleVisibilityBtn.textContent = '🙈';
+    } else {
+      apiKeyInput.type = 'password';
+      toggleVisibilityBtn.textContent = '👁';
+    }
+  });
+
+  // カスタムエンドポイント変更
+  customEndpointInput.addEventListener('change', async () => {
+    llmSettings.customEndpoint = customEndpointInput.value.trim();
+    await saveLLMSettings();
+  });
+
+  // 構造化設定
+  autoStructureCheckbox.addEventListener('change', async () => {
+    llmSettings.autoStructure = autoStructureCheckbox.checked;
+    await saveLLMSettings();
+  });
+
+  extractActionsCheckbox.addEventListener('change', async () => {
+    llmSettings.extractActions = extractActionsCheckbox.checked;
+    await saveLLMSettings();
+  });
+
+  extractDecisionsCheckbox.addEventListener('change', async () => {
+    llmSettings.extractDecisions = extractDecisionsCheckbox.checked;
+    await saveLLMSettings();
+  });
+
+  // プロフィール情報変更
+  const saveProfile = async () => {
+    llmSettings.profile = {
+      name: profileNameInput.value.trim(),
+      company: profileCompanyInput.value.trim(),
+      role: profileRoleInput.value.trim(),
+      context: profileContextInput.value.trim()
+    };
+    await saveLLMSettings();
+  };
+
+  profileNameInput.addEventListener('change', saveProfile);
+  profileCompanyInput.addEventListener('change', saveProfile);
+  profileRoleInput.addEventListener('change', saveProfile);
+  profileContextInput.addEventListener('change', saveProfile);
+
+  // 接続テスト
+  testConnectionBtn.addEventListener('click', async () => {
+    await testLLMConnection(testResultEl);
+  });
+}
+
+/**
+ * モデルリストを更新
+ */
+function updateModelList(provider) {
+  const modelSelect = document.getElementById('llm-model');
+  modelSelect.innerHTML = '';
+
+  const models = LLM_MODELS[provider] || [];
+  for (const model of models) {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.name;
+    modelSelect.appendChild(option);
+  }
+}
+
+/**
+ * APIノートを更新
+ */
+function updateApiNote(provider) {
+  const apiNote = document.getElementById('llm-api-note');
+  const notes = {
+    gemini: '⚠️ 文字起こし機能はBraveブラウザでは利用できません（Chromeを推奨）\nGeminiは無料枠で利用可能（15 RPM / 250 RPD）',
+    openai: '⚠️ 文字起こし機能はBraveブラウザでは利用できません（Chromeを推奨）\nOpenAIは従量課金制です',
+    claude: '⚠️ 文字起こし機能はBraveブラウザでは利用できません（Chromeを推奨）\nClaudeは従量課金制です',
+    custom: '⚠️ 文字起こし機能はBraveブラウザでは利用できません（Chromeを推奨）\nOpenAI互換のエンドポイントを指定してください'
+  };
+  apiNote.textContent = notes[provider] || '';
+  apiNote.style.whiteSpace = 'pre-line';
+}
+
+/**
+ * LLM設定を保存
+ */
+async function saveLLMSettings() {
+  if (isExtension) {
+    try {
+      await sendMessage({ type: 'SAVE_LLM_SETTINGS', settings: llmSettings });
+      console.log('[Popup] LLM settings saved');
+    } catch (error) {
+      console.error('[Popup] Error saving LLM settings:', error);
+    }
+  }
+}
+
+/**
+ * LLM接続テスト
+ */
+async function testLLMConnection(resultEl) {
+  if (!llmSettings.apiKey && llmSettings.provider !== 'custom') {
+    resultEl.textContent = '❌ APIキーを入力してください';
+    resultEl.style.color = 'var(--danger-color)';
+    return;
+  }
+
+  resultEl.textContent = '🔄 テスト中...';
+  resultEl.style.color = 'var(--text-secondary)';
+
+  try {
+    const response = await sendMessage({
+      type: 'TEST_LLM_CONNECTION',
+      settings: llmSettings
+    });
+
+    if (response.success) {
+      resultEl.textContent = `✅ 接続成功！レスポンス: "${response.message}"`;
+      resultEl.style.color = 'var(--success-color)';
+    } else {
+      resultEl.textContent = `❌ エラー: ${response.error}`;
+      resultEl.style.color = 'var(--danger-color)';
+    }
+  } catch (error) {
+    resultEl.textContent = `❌ 接続エラー: ${error.message}`;
+    resultEl.style.color = 'var(--danger-color)';
+  }
 }

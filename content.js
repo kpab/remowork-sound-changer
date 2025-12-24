@@ -95,9 +95,57 @@
           payload: { images: result.virtualCameraImages }
         }, '*');
       }
+
+      // デフォルト画像を読み込んで設定
+      loadDefaultImages();
     } catch (error) {
       console.error('[RemoworkSoundChanger] Failed to load virtual camera images:', error);
     }
+  }
+
+  /**
+   * デフォルト画像を読み込んでvirtual-camera.jsに送信
+   */
+  async function loadDefaultImages() {
+    const defaultImageTypes = ['wave', 'thumbsup'];
+    const defaultImages = {};
+
+    for (const type of defaultImageTypes) {
+      try {
+        const url = chrome.runtime.getURL(`images/defaults/${type}.png`);
+        const response = await fetch(url);
+        if (response.ok) {
+          const blob = await response.blob();
+          const base64 = await blobToBase64(blob);
+          defaultImages[type] = base64;
+        }
+      } catch (error) {
+        // デフォルト画像が存在しない場合は無視
+        console.log(`[RemoworkSoundChanger] No default image for ${type}`);
+      }
+    }
+
+    // デフォルト画像が1つでもあれば送信
+    if (Object.keys(defaultImages).length > 0) {
+      window.postMessage({
+        source: 'remowork-virtual-camera',
+        type: 'SET_DEFAULT_IMAGES',
+        payload: defaultImages
+      }, '*');
+      console.log('[RemoworkSoundChanger] Default images loaded:', Object.keys(defaultImages));
+    }
+  }
+
+  /**
+   * BlobをBase64に変換
+   */
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   }
 
   /**

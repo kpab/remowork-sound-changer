@@ -351,6 +351,23 @@ async function handleMessage(message) {
       const transcriptResult = await sendToOffscreen({ type: 'GET_TRANSCRIPT' });
       return transcriptResult;
 
+    // LLM設定
+    case 'GET_LLM_SETTINGS':
+      const llmSettings = await getLLMSettings();
+      return { success: true, data: llmSettings };
+
+    case 'SAVE_LLM_SETTINGS':
+      await saveLLMSettings(message.settings);
+      return { success: true };
+
+    case 'TEST_LLM_CONNECTION':
+      const testResult = await testLLMConnection(message.settings);
+      return testResult;
+
+    case 'STRUCTURE_TRANSCRIPT':
+      const structureResult = await structureTranscript(message.transcript, message.settings);
+      return structureResult;
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -558,3 +575,261 @@ async function sendToOffscreen(message) {
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Remowork Sound Changer installed');
 });
+
+// ========================================
+// LLM設定と構造化機能
+// ========================================
+
+/**
+ * LLM設定を取得
+ */
+async function getLLMSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['llmSettings'], (result) => {
+      resolve(result.llmSettings || {
+        enabled: false,
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        apiKey: '',
+        customEndpoint: '',
+        autoStructure: true,
+        extractActions: true,
+        extractDecisions: true
+      });
+    });
+  });
+}
+
+/**
+ * LLM設定を保存
+ */
+async function saveLLMSettings(settings) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ llmSettings: settings }, resolve);
+  });
+}
+
+/**
+ * LLM接続テスト
+ */
+async function testLLMConnection(settings) {
+  const testPrompt = 'Say "Hello!" in one word.';
+
+  try {
+    const response = await callLLM(testPrompt, settings);
+    return { success: true, message: response.substring(0, 50) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * LLM APIを呼び出す
+ */
+async function callLLM(prompt, settings) {
+  const { provider, model, apiKey, customEndpoint } = settings;
+
+  switch (provider) {
+    case 'gemini':
+      return await callGeminiAPI(prompt, model, apiKey);
+    case 'openai':
+      return await callOpenAIAPI(prompt, model, apiKey);
+    case 'claude':
+      return await callClaudeAPI(prompt, model, apiKey);
+    case 'custom':
+      return await callCustomAPI(prompt, model, apiKey, customEndpoint);
+    default:
+      throw new Error('Unknown provider: ' + provider);
+  }
+}
+
+/**
+ * Gemini APIを呼び出す
+ */
+async function callGeminiAPI(prompt, model, apiKey) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+/**
+ * OpenAI APIを呼び出す
+ */
+async function callOpenAIAPI(prompt, model, apiKey) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Claude APIを呼び出す
+ */
+async function callClaudeAPI(prompt, model, apiKey) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: model,
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text || '';
+}
+
+/**
+ * カスタムAPI（OpenAI互換）を呼び出す
+ */
+async function callCustomAPI(prompt, model, apiKey, endpoint) {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || 'default',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * 文字起こしを構造化
+ */
+async function structureTranscript(transcript, settings) {
+  if (!transcript || transcript.trim().length === 0) {
+    return { success: false, error: 'No transcript provided' };
+  }
+
+  const prompt = buildStructurePrompt(transcript, settings);
+
+  try {
+    const result = await callLLM(prompt, settings);
+    return { success: true, structured: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 構造化用プロンプトを生成
+ */
+function buildStructurePrompt(input, settings) {
+  // プロフィール情報を構築
+  let profileContext = '';
+  const profile = settings.profile || {};
+  if (profile.name || profile.company || profile.role || profile.context) {
+    profileContext = `
+
+【参加者情報（漢字変換の参考にしてください）】
+`;
+    if (profile.name) {
+      profileContext += `- 記録者の名前: ${profile.name}\n`;
+    }
+    if (profile.company) {
+      profileContext += `- 会社名: ${profile.company}\n`;
+    }
+    if (profile.role) {
+      profileContext += `- 役職: ${profile.role}\n`;
+    }
+    if (profile.context) {
+      profileContext += `- その他の情報: ${profile.context}\n`;
+    }
+  }
+
+  let prompt = `以下は会議の記録です。文字起こしと手動メモの両方を参照して、内容を構造化してください。
+${profileContext}
+${input}
+
+以下の形式で構造化してください（├─ や └─ でツリー構造を表現）:
+
+会議メモ
+├─ 議題1: ○○について
+│  ├─ 発言者: 内容
+│  ├─ 発言者: 内容
+`;
+
+  if (settings.extractDecisions) {
+    prompt += `│  └─ 【決定】決定事項の内容
+`;
+  }
+
+  prompt += `├─ 議題2: △△について
+│  ├─ 発言者: 内容
+`;
+
+  if (settings.extractActions) {
+    prompt += `└─ 【アクション】
+   ├─ 担当者: タスク内容（期限があれば）
+   └─ 担当者: タスク内容
+`;
+  }
+
+  prompt += `
+ルール:
+- 文字起こしと手動メモの両方から情報を抽出
+- 発言者が特定できない場合は省略可
+- 議題・トピックごとにグループ化
+- 決定事項は【決定】、アクションアイテムは【アクション】でマーク
+- 簡潔に、重要なポイントのみ抽出
+- 参加者情報を参考に、固有名詞や専門用語の漢字変換を正確に`;
+
+  return prompt;
+}

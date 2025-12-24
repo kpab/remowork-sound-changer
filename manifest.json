@@ -55,6 +55,7 @@
         "inject.js",
         "virtual-camera.js",
         "sounds/*/*",
+        "images/defaults/*",
         "lib/mediapipe/*"
       ],
       "matches": ["https://stage.remowork.biz/*", "https://remowork.biz/*"]
