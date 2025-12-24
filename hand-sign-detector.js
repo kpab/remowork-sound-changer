@@ -1463,30 +1463,39 @@
 
         <!-- 録音タブ -->
         <div class="rsc-tab-content rsc-tab-recorder">
-          <div class="rsc-recorder-status">
-            <span class="rsc-recorder-indicator idle"></span>
-            <span class="rsc-recorder-status-text">待機中</span>
-          </div>
-          <div class="rsc-recorder-time">00:00:00</div>
-          <div class="rsc-recorder-controls">
-            <button class="rsc-recorder-btn rsc-recorder-btn-record" title="録音開始">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                <circle cx="12" cy="12" r="8"/>
-              </svg>
-            </button>
-            <button class="rsc-recorder-btn rsc-recorder-btn-pause" title="一時停止" disabled>
-              <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-              </svg>
-            </button>
-            <button class="rsc-recorder-btn rsc-recorder-btn-stop" title="停止" disabled>
-              <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                <rect x="6" y="6" width="12" height="12"/>
-              </svg>
-            </button>
-          </div>
-          <div class="rsc-recorder-info">
-            タブの音声を録音するには「タブの音声を共有」にチェックを入れてください
+          <!-- 上部：タイマーと履歴を横並び -->
+          <div class="rsc-recorder-top">
+            <div class="rsc-recorder-timer-section">
+              <div class="rsc-recorder-status">
+                <span class="rsc-recorder-indicator idle"></span>
+                <span class="rsc-recorder-status-text">待機中</span>
+              </div>
+              <div class="rsc-recorder-time">00:00:00</div>
+              <div class="rsc-recorder-controls">
+                <button class="rsc-recorder-btn rsc-recorder-btn-record" title="録音開始">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <circle cx="12" cy="12" r="8"/>
+                  </svg>
+                </button>
+                <button class="rsc-recorder-btn rsc-recorder-btn-pause" title="一時停止" disabled>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                  </svg>
+                </button>
+                <button class="rsc-recorder-btn rsc-recorder-btn-stop" title="停止" disabled>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <rect x="6" y="6" width="12" height="12"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="rsc-recorder-info">
+                タブの音声を録音するには「タブの音声を共有」にチェックを入れてください
+              </div>
+            </div>
+            <div class="rsc-recorder-history-section">
+              <div class="rsc-recorder-history-title">📁 履歴</div>
+              <div class="rsc-recorder-recordings"></div>
+            </div>
           </div>
 
           <!-- メモ・文字起こしエリア -->
@@ -1508,8 +1517,6 @@
               <div class="rsc-transcript-area" contenteditable="false"></div>
             </div>
           </div>
-
-          <div class="rsc-recorder-recordings"></div>
         </div>
 
         <div class="rsc-modal-resize-handle"></div>
@@ -1782,12 +1789,60 @@
       }
 
       /* 録音タブ */
+      .rsc-recorder-top {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .rsc-recorder-timer-section {
+        flex: 1;
+        min-width: 0;
+      }
+      .rsc-recorder-history-section {
+        width: 180px;
+        flex-shrink: 0;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 8px;
+        max-height: 160px;
+        overflow-y: auto;
+      }
+      .rsc-recorder-history-title {
+        color: #a0aec0;
+        font-size: 12px;
+        margin-bottom: 8px;
+        font-weight: 500;
+      }
+      .rsc-recorder-history-section .rsc-recorder-recordings {
+        margin-top: 0;
+      }
+      .rsc-recorder-history-section .rsc-recording-item {
+        padding: 6px 8px;
+        margin-bottom: 4px;
+        font-size: 11px;
+      }
+      .rsc-recorder-history-section .rsc-recording-info {
+        gap: 4px;
+      }
+      .rsc-recorder-history-section .rsc-recording-name {
+        font-size: 11px;
+      }
+      .rsc-recorder-history-section .rsc-recording-meta {
+        font-size: 10px;
+      }
+      .rsc-recorder-history-section .rsc-recording-actions {
+        gap: 2px;
+      }
+      .rsc-recorder-history-section .rsc-recording-actions button {
+        padding: 2px 4px;
+        font-size: 12px;
+      }
       .rsc-recorder-status {
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 10px;
-        margin-bottom: 16px;
+        margin-bottom: 8px;
       }
       .rsc-recorder-indicator {
         width: 12px;
@@ -1812,21 +1867,21 @@
       }
       .rsc-recorder-time {
         text-align: center;
-        font-size: 48px;
-        font-weight: 200;
+        font-size: 32px;
+        font-weight: 300;
         color: #fff;
         font-variant-numeric: tabular-nums;
-        margin-bottom: 20px;
+        margin-bottom: 12px;
       }
       .rsc-recorder-controls {
         display: flex;
         justify-content: center;
-        gap: 16px;
-        margin-bottom: 16px;
+        gap: 12px;
+        margin-bottom: 12px;
       }
       .rsc-recorder-btn {
-        width: 56px;
-        height: 56px;
+        width: 44px;
+        height: 44px;
         border: none;
         border-radius: 50%;
         background: rgba(255,255,255,0.1);
