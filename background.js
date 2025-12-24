@@ -56,6 +56,7 @@ const PRESET_SOUNDS = {
     { id: 'incoming_denwa1', file: '電話です.mp3', label: '電話です' },
     { id: 'incoming_denwa2', file: '電話です2.mp3', label: '電話です2' },
     { id: 'incoming_chakushin', file: '着信です.mp3', label: '着信です' },
+    { id: 'incoming_horn', file: 'ほら貝.mp3', label: 'ほら貝' },
     { id: 'incoming_cat1', file: '猫の鳴き声1.mp3', label: '猫の鳴き声1' },
     { id: 'incoming_cat2', file: '猫の鳴き声2.mp3', label: '猫の鳴き声2' },
     { id: 'incoming_cat3', file: '猫の鳴き声3.mp3', label: '猫の鳴き声3' },
@@ -100,6 +101,7 @@ const PRESET_SOUNDS = {
   doorchime: [
     { id: 'doorchime_temple', file: 'お寺の鐘.mp3', label: 'お寺の鐘' },
     { id: 'doorchime_quiz', file: 'クイズ出題.mp3', label: 'クイズ出題' },
+    { id: 'doorchime_horn', file: 'ほら貝.mp3', label: 'ほら貝' },
     { id: 'doorchime_pa', file: 'パッ.mp3', label: 'パッ' },
     { id: 'doorchime_puff', file: 'パフ.mp3', label: 'パフ' },
     { id: 'doorchime_peta', file: 'ペタッ.mp3', label: 'ペタッ' },

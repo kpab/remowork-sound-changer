@@ -272,6 +272,46 @@ async function handleSoundListChange(e) {
 }
 
 /**
+ * 他の音声タイプで使用中のプリセットを取得
+ */
+function getUsedPresets(excludeSoundId = null) {
+  const used = new Map(); // presetLabel -> soundType
+
+  for (const [id, soundSetting] of Object.entries(settings.sounds || {})) {
+    if (id === excludeSoundId) continue;
+    if (soundSetting.mode === 'preset' && soundSetting.presetId) {
+      // プリセットのラベル（ファイル名）を取得
+      const presets = presetSounds[id] || [];
+      const preset = presets.find(p => p.id === soundSetting.presetId);
+      if (preset) {
+        used.set(preset.file, SOUND_LABELS[id] || id);
+      }
+    }
+  }
+
+  return used;
+}
+
+/**
+ * プリセットが他で使用中かチェック
+ */
+function isPresetUsedElsewhere(presetId, soundId) {
+  const usedPresets = getUsedPresets(soundId);
+
+  // このプリセットのファイル名を取得
+  const presets = presetSounds[soundId] || [];
+  const preset = presets.find(p => p.id === presetId);
+  if (!preset) return null;
+
+  // 同じファイル名が他で使われているかチェック
+  if (usedPresets.has(preset.file)) {
+    return usedPresets.get(preset.file);
+  }
+
+  return null;
+}
+
+/**
  * モード変更の処理
  */
 async function handleModeChange(soundId, mode, item) {
@@ -286,9 +326,34 @@ async function handleModeChange(soundId, mode, item) {
     // preset:xxx 形式かチェック
     if (mode.startsWith('preset:')) {
       const presetId = mode.replace('preset:', '');
+
+      // 重複チェック
+      const usedIn = isPresetUsedElsewhere(presetId, soundId);
+      if (usedIn) {
+        const preset = (presetSounds[soundId] || []).find(p => p.id === presetId);
+        showToast(`「${preset?.label || 'この音声'}」は「${usedIn}」で使用中です`, 'error');
+        // 元の値に戻す
+        const currentMode = settings.sounds?.[soundId]?.mode || 'original';
+        const currentPreset = settings.sounds?.[soundId]?.presetId || null;
+        if (currentMode === 'preset' && currentPreset) {
+          item.querySelector('.sound-mode').value = `preset:${currentPreset}`;
+        } else {
+          item.querySelector('.sound-mode').value = currentMode;
+        }
+        item.classList.remove('loading');
+        return;
+      }
+
       if (isExtension) {
         await sendMessage({ type: 'SET_PRESET', id: soundId, presetId });
       }
+
+      // 設定を更新
+      if (!settings.sounds) settings.sounds = {};
+      if (!settings.sounds[soundId]) settings.sounds[soundId] = {};
+      settings.sounds[soundId].mode = 'preset';
+      settings.sounds[soundId].presetId = presetId;
+
       item.querySelector('.sound-file-info').textContent = '';
       updateStatusBadge(item, 'preset', presetId);
 
@@ -298,6 +363,13 @@ async function handleModeChange(soundId, mode, item) {
       if (isExtension) {
         await sendMessage({ type: 'SET_ORIGINAL', id: soundId });
       }
+
+      // 設定を更新
+      if (!settings.sounds) settings.sounds = {};
+      if (!settings.sounds[soundId]) settings.sounds[soundId] = {};
+      settings.sounds[soundId].mode = 'original';
+      delete settings.sounds[soundId].presetId;
+
       item.querySelector('.sound-file-info').textContent = '';
       updateStatusBadge(item, mode);
       showToast('オリジナル音声に戻しました', 'success');
