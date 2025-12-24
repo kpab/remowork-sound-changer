@@ -313,4 +313,145 @@
   });
 
   console.log('[RemoworkSoundChanger] Ready - Intercepting Howler.js, Audio, XHR, and fetch');
+
+  // =============================================
+  // 文字起こし機能 (Web Speech API)
+  // ページコンテキストで実行することでnetworkエラーを回避
+  // =============================================
+
+  let speechRecognition = null;
+  let isTranscribing = false;
+  let transcriptText = '';
+
+  function startTranscription() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[RemoworkTranscription] Web Speech API not supported');
+      window.dispatchEvent(new CustomEvent('remowork-transcription-error', {
+        detail: { error: 'not-supported', message: 'このブラウザは文字起こしに対応していません' }
+      }));
+      return;
+    }
+
+    if (isTranscribing) return;
+
+    transcriptText = '';
+    isTranscribing = true;
+
+    speechRecognition = new SpeechRecognition();
+    speechRecognition.continuous = true;
+    speechRecognition.interimResults = true;
+    speechRecognition.lang = 'ja-JP';
+
+    speechRecognition.onresult = (event) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        transcriptText += finalTranscript + '\n';
+      }
+
+      // Content Scriptにイベントで結果を送信
+      window.dispatchEvent(new CustomEvent('remowork-transcription-result', {
+        detail: {
+          transcript: transcriptText,
+          interim: interimTranscript,
+          isFinal: !!finalTranscript
+        }
+      }));
+    };
+
+    speechRecognition.onerror = (event) => {
+      console.warn('[RemoworkTranscription] Speech recognition error:', event.error);
+
+      if (event.error === 'network') {
+        isTranscribing = false;
+        window.dispatchEvent(new CustomEvent('remowork-transcription-error', {
+          detail: { error: 'network', message: 'ネットワークエラー：文字起こし利用不可' }
+        }));
+        return;
+      }
+
+      if (event.error === 'not-allowed') {
+        isTranscribing = false;
+        window.dispatchEvent(new CustomEvent('remowork-transcription-error', {
+          detail: { error: 'not-allowed', message: 'マイクへのアクセスが拒否されました' }
+        }));
+        return;
+      }
+
+      // no-speechエラーの場合は再起動
+      if (event.error === 'no-speech' && isTranscribing) {
+        setTimeout(() => {
+          if (isTranscribing && speechRecognition) {
+            try {
+              speechRecognition.start();
+            } catch (e) {}
+          }
+        }, 100);
+      }
+    };
+
+    speechRecognition.onend = () => {
+      if (isTranscribing) {
+        try {
+          speechRecognition.start();
+        } catch (e) {}
+      }
+    };
+
+    try {
+      speechRecognition.start();
+      console.log('[RemoworkTranscription] Transcription started');
+      window.dispatchEvent(new CustomEvent('remowork-transcription-started'));
+    } catch (e) {
+      console.error('[RemoworkTranscription] Failed to start:', e);
+      isTranscribing = false;
+      window.dispatchEvent(new CustomEvent('remowork-transcription-error', {
+        detail: { error: 'start-failed', message: e.message }
+      }));
+    }
+  }
+
+  function stopTranscription() {
+    isTranscribing = false;
+    if (speechRecognition) {
+      try {
+        speechRecognition.stop();
+      } catch (e) {}
+      speechRecognition = null;
+    }
+    console.log('[RemoworkTranscription] Transcription stopped');
+    window.dispatchEvent(new CustomEvent('remowork-transcription-stopped', {
+      detail: { transcript: transcriptText }
+    }));
+  }
+
+  // Content Scriptからのコマンドを受信
+  window.addEventListener('remowork-transcription-start', () => {
+    startTranscription();
+  });
+
+  window.addEventListener('remowork-transcription-stop', () => {
+    stopTranscription();
+  });
+
+  // グローバルに公開（デバッグ用）
+  window.__remoworkTranscription = {
+    start: startTranscription,
+    stop: stopTranscription,
+    isTranscribing: () => isTranscribing,
+    getTranscript: () => transcriptText
+  };
+
+  console.log('[RemoworkTranscription] Ready - Access via window.__remoworkTranscription');
 })();

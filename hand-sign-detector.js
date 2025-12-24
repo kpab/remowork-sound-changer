@@ -973,6 +973,21 @@
     // 無音の場合はスキップ
     if (presetId === 'countdown_none') return;
 
+    // presetSoundsがまだロードされていない場合はロード
+    if (!presetSounds) {
+      try {
+        const result = await chrome.runtime.sendMessage({ type: 'GET_PRESET_SOUNDS' });
+        if (result && result.presets) {
+          presetSounds = result.presets;
+        }
+      } catch (e) {
+        console.warn('[HandSign] Failed to load preset sounds:', e);
+        return;
+      }
+    }
+
+    if (!presetSounds) return;
+
     try {
       const presets = presetSounds[category];
       if (presets) {
@@ -1407,8 +1422,11 @@
   let audioDestination = null;
   let currentPlayingAudio = null;
   let currentPlayingId = null;
+  let recordingsDb = null;
+  const RECORDINGS_DB_NAME = 'remowork-recordings';
+  const RECORDINGS_STORE_NAME = 'recordings';
 
-  // 文字起こし関連（Offscreen API経由）
+  // 文字起こし関連（ページコンテキスト inject.js 経由）
   let transcriptText = '';
   let isTranscribing = false;
 
@@ -1505,6 +1523,13 @@
                 <span class="rsc-notes-title">✏️ メモ</span>
               </div>
               <textarea class="rsc-manual-notes" placeholder="メモを入力..."></textarea>
+            </div>
+            <div class="rsc-notes-section">
+              <div class="rsc-notes-header">
+                <span class="rsc-notes-title">🤖 自動構造化メモ</span>
+                <span class="rsc-dev-badge">開発中</span>
+              </div>
+              <div class="rsc-structured-notes-area">（開発中）</div>
             </div>
             <div class="rsc-notes-section">
               <div class="rsc-notes-header">
@@ -1799,7 +1824,7 @@
         min-width: 0;
       }
       .rsc-recorder-history-section {
-        width: 180px;
+        width: 240px;
         flex-shrink: 0;
         background: rgba(255,255,255,0.03);
         border-radius: 8px;
@@ -1984,6 +2009,23 @@
       }
       .rsc-manual-notes::placeholder {
         color: #4a5568;
+      }
+      .rsc-dev-badge {
+        background: rgba(237, 137, 54, 0.2);
+        color: #ed8936;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 8px;
+      }
+      .rsc-structured-notes-area {
+        background: rgba(0,0,0,0.2);
+        border-radius: 6px;
+        padding: 10px;
+        min-height: 40px;
+        font-size: 13px;
+        color: #718096;
+        line-height: 1.5;
       }
       .rsc-recorder-recordings {
         max-height: 200px;
@@ -2244,11 +2286,16 @@
       startCamera();
     }
 
-    // 録音タブを開く場合、既に録音中ならUIを更新
-    if (initialTab === 'recorder' && mediaRecorder && mediaRecorder.state !== 'inactive') {
-      updateRecorderUI(mediaRecorder.state === 'paused' ? 'paused' : 'recording');
-      startRecorderTimer();
-      showRecorderInfo('録音中（マイク）');
+    // 録音タブを開く場合
+    if (initialTab === 'recorder') {
+      // 既に録音中ならUIを更新
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        updateRecorderUI(mediaRecorder.state === 'paused' ? 'paused' : 'recording');
+        startRecorderTimer();
+        showRecorderInfo('録音中（マイク）');
+      }
+      // 録音履歴を読み込み（古い録音の自動削除も実行）
+      await loadRecordings();
     }
 
     // 保存された高さを復元
@@ -2634,52 +2681,69 @@
   }
 
   /**
-   * 文字起こしを開始（Offscreen API経由）
+   * 文字起こしを開始（inject.js ページコンテキスト経由）
+   * 注意: BraveブラウザではWeb Speech APIが利用不可（Chromeでは動作）
    */
-  async function startTranscription() {
-    const toggleCheckbox = toolsModal?.querySelector('.rsc-transcript-toggle');
-    if (toggleCheckbox && !toggleCheckbox.checked) {
-      return; // 文字起こしがOFFの場合
-    }
+  function startTranscription() {
+    if (isTranscribing) return;
 
-    transcriptText = '';
-    isTranscribing = true;
     updateTranscriptDisplay('文字起こしを開始しています...');
+    transcriptText = '';
 
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'START_TRANSCRIPTION' });
-      if (result.success) {
-        console.log('[HandSign] Transcription started via offscreen');
-        updateTranscriptDisplay('');
-      } else {
-        console.error('[HandSign] Failed to start transcription:', result.error);
-        updateTranscriptDisplay('（文字起こしを開始できませんでした）');
-        isTranscribing = false;
-      }
-    } catch (e) {
-      console.error('[HandSign] Failed to start transcription:', e);
-      updateTranscriptDisplay('（文字起こしを開始できませんでした）');
-      isTranscribing = false;
-    }
+    // inject.js にイベントを送信
+    window.dispatchEvent(new CustomEvent('remowork-transcription-start'));
+    console.log('[HandSign] Transcription start requested');
   }
 
   /**
-   * 文字起こしを停止（Offscreen API経由）
+   * 文字起こしを停止（inject.js ページコンテキスト経由）
    */
-  async function stopTranscription() {
+  function stopTranscription() {
+    if (!isTranscribing) return;
+
+    // inject.js にイベントを送信
+    window.dispatchEvent(new CustomEvent('remowork-transcription-stop'));
+    isTranscribing = false;
+    console.log('[HandSign] Transcription stop requested');
+  }
+
+  // inject.js からの文字起こしイベントをリッスン
+  window.addEventListener('remowork-transcription-started', () => {
+    isTranscribing = true;
+    updateTranscriptDisplay('（音声を待機中...）');
+    console.log('[HandSign] Transcription started');
+  });
+
+  window.addEventListener('remowork-transcription-result', (event) => {
+    const { transcript, interim } = event.detail;
+    transcriptText = transcript || '';
+    const displayText = interim ? transcriptText + interim : transcriptText;
+    updateTranscriptDisplay(displayText || '（音声を待機中...）');
+  });
+
+  window.addEventListener('remowork-transcription-error', (event) => {
+    const { error, message } = event.detail;
     isTranscribing = false;
 
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'STOP_TRANSCRIPTION' });
-      if (result.success && result.transcript) {
-        transcriptText = result.transcript;
-        updateTranscriptDisplay(transcriptText);
-      }
-      console.log('[HandSign] Transcription stopped via offscreen');
-    } catch (e) {
-      console.error('[HandSign] Failed to stop transcription:', e);
+    if (error === 'network') {
+      updateTranscriptDisplay(
+        '⚠️ ネットワークエラー\n\n' +
+        'Braveブラウザでは利用できません。\n' +
+        'Google Chromeをお使いください。'
+      );
+    } else if (error === 'not-allowed') {
+      updateTranscriptDisplay('⚠️ マイクへのアクセスが拒否されました');
+    } else {
+      updateTranscriptDisplay(`⚠️ エラー: ${message || error}`);
     }
-  }
+  });
+
+  window.addEventListener('remowork-transcription-stopped', (event) => {
+    if (event.detail?.transcript) {
+      transcriptText = event.detail.transcript;
+    }
+    console.log('[HandSign] Transcription stopped');
+  });
 
   /**
    * 文字起こし表示を更新
@@ -2731,23 +2795,142 @@
   }
 
   /**
+   * 録音用IndexedDBを初期化
+   */
+  async function initRecordingsDb() {
+    if (recordingsDb) return recordingsDb;
+
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(RECORDINGS_DB_NAME, 1);
+
+      request.onerror = () => {
+        console.error('[HandSign] Failed to open recordings DB:', request.error);
+        reject(request.error);
+      };
+
+      request.onsuccess = () => {
+        recordingsDb = request.result;
+        console.log('[HandSign] Recordings DB opened');
+        resolve(recordingsDb);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(RECORDINGS_STORE_NAME)) {
+          const store = db.createObjectStore(RECORDINGS_STORE_NAME, { keyPath: 'id' });
+          store.createIndex('date', 'date', { unique: false });
+          console.log('[HandSign] Recordings store created');
+        }
+      };
+    });
+  }
+
+  /**
+   * 録音データをIndexedDBに保存
+   */
+  async function saveRecordingToDb(recording) {
+    try {
+      const db = await initRecordingsDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
+        const request = store.put(recording);
+
+        request.onsuccess = () => {
+          console.log('[HandSign] Recording saved to DB:', recording.id);
+          resolve();
+        };
+        request.onerror = () => {
+          console.error('[HandSign] Failed to save recording:', request.error);
+          reject(request.error);
+        };
+      });
+    } catch (e) {
+      console.error('[HandSign] DB error:', e);
+    }
+  }
+
+  /**
+   * 録音データをIndexedDBから読み込み
+   */
+  async function loadRecordingsFromDb() {
+    try {
+      const db = await initRecordingsDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const data = request.result || [];
+          // 新しい順にソート
+          data.sort((a, b) => b.id - a.id);
+          console.log('[HandSign] Loaded recordings from DB:', data.length);
+          resolve(data);
+        };
+        request.onerror = () => {
+          console.error('[HandSign] Failed to load recordings:', request.error);
+          reject(request.error);
+        };
+      });
+    } catch (e) {
+      console.error('[HandSign] DB error:', e);
+      return [];
+    }
+  }
+
+  /**
+   * 録音データをIndexedDBから削除
+   */
+  async function deleteRecordingFromDb(id) {
+    try {
+      const db = await initRecordingsDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
+        const request = store.delete(id);
+
+        request.onsuccess = () => {
+          console.log('[HandSign] Recording deleted from DB:', id);
+          resolve();
+        };
+        request.onerror = () => {
+          console.error('[HandSign] Failed to delete recording:', request.error);
+          reject(request.error);
+        };
+      });
+    } catch (e) {
+      console.error('[HandSign] DB error:', e);
+    }
+  }
+
+  /**
    * 録音データを保存
    */
-  function saveRecordingData(blob) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  async function saveRecordingData(blob) {
+    const now = new Date();
+    const dateStr = now.toLocaleString('ja-JP', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
     const notesText = getMeetingNotesText();
 
     const recording = {
       id: Date.now(),
-      name: `録音_${timestamp}`,
+      name: dateStr,
       blob: blob,
       duration: formatRecorderTime(Date.now() - recordingStartTime),
-      date: new Date().toLocaleString('ja-JP'),
+      date: now.toLocaleString('ja-JP'),
       notes: notesText // メモを保存
     };
 
     recordings.unshift(recording);
     updateRecordingsList();
+
+    // IndexedDBに保存
+    await saveRecordingToDb(recording);
   }
 
   /**
@@ -2921,7 +3104,7 @@
   /**
    * 録音を削除
    */
-  function deleteRecordingById(id) {
+  async function deleteRecordingById(id) {
     const index = recordings.findIndex(r => r.id === id);
     if (index === -1) return;
 
@@ -2934,6 +3117,43 @@
 
     recordings.splice(index, 1);
     updateRecordingsList();
+
+    // IndexedDBからも削除
+    await deleteRecordingFromDb(id);
+  }
+
+  /**
+   * 1ヶ月以上経過した録音を自動削除
+   */
+  async function cleanupOldRecordings() {
+    const oneMonthAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const oldRecordings = recordings.filter(r => r.id < oneMonthAgo);
+
+    if (oldRecordings.length === 0) return;
+
+    console.log(`[HandSign] Cleaning up ${oldRecordings.length} old recordings...`);
+
+    for (const recording of oldRecordings) {
+      await deleteRecordingFromDb(recording.id);
+    }
+
+    recordings = recordings.filter(r => r.id >= oneMonthAgo);
+    updateRecordingsList();
+    console.log('[HandSign] Old recordings cleaned up');
+  }
+
+  /**
+   * 録音履歴を読み込み
+   */
+  async function loadRecordings() {
+    try {
+      recordings = await loadRecordingsFromDb();
+      updateRecordingsList();
+      // 古い録音を自動削除
+      await cleanupOldRecordings();
+    } catch (e) {
+      console.error('[HandSign] Failed to load recordings:', e);
+    }
   }
 
   /**
@@ -3036,30 +3256,6 @@
 
   // メッセージを受信
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // 文字起こし結果を受信（Offscreenから）
-    if (message.type === 'TRANSCRIPTION_RESULT') {
-      if (isTranscribing) {
-        transcriptText = message.transcript;
-        const displayText = message.transcript + (message.interim || '');
-        updateTranscriptDisplay(displayText);
-      }
-      return false;
-    }
-
-    // 文字起こしエラーを受信（Offscreenから）
-    if (message.type === 'TRANSCRIPTION_ERROR') {
-      console.warn('[HandSign] Transcription error from offscreen:', message.error);
-      isTranscribing = false;
-      if (message.error === 'network') {
-        updateTranscriptDisplay('（ネットワークエラー：文字起こし利用不可）\n\n手動でメモを入力してください。');
-      } else if (message.error === 'not-allowed') {
-        updateTranscriptDisplay('（マイクへのアクセスが拒否されました）');
-      } else {
-        updateTranscriptDisplay(`（文字起こしエラー: ${message.message || message.error}）`);
-      }
-      return false;
-    }
-
     // 通知音再生
     if (message.type === 'PLAY_NOTIFICATION_SOUND' && message.url) {
       const audio = new Audio(message.url);
