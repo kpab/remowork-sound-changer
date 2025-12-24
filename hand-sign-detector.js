@@ -1378,6 +1378,9 @@
     // 設定を読み込む
     await loadSettings();
 
+    // レート制限カウンターをストレージから復元
+    await loadRateLimitFromStorage();
+
     // 自分の名前を検出
     detectMyName();
 
@@ -1470,6 +1473,56 @@
   let requestCountMinute = 0;
   let lastMinuteReset = Date.now();
   let nextRequestCountdown = null;
+  let rateLimitDate = ''; // YYYY-MM-DD形式で日付追跡
+
+  /**
+   * 今日の日付を取得（YYYY-MM-DD形式）
+   */
+  function getTodayDateString() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  /**
+   * レート制限カウンターをストレージから読み込み
+   */
+  async function loadRateLimitFromStorage() {
+    try {
+      const result = await chrome.storage.local.get('rateLimitData');
+      const today = getTodayDateString();
+
+      if (result.rateLimitData && result.rateLimitData.date === today) {
+        // 今日のデータがある場合は復元
+        requestCountToday = result.rateLimitData.count || 0;
+        rateLimitDate = today;
+        console.log('[HandSignDetector] Rate limit restored:', requestCountToday);
+      } else {
+        // 日付が変わった or データがない場合はリセット
+        requestCountToday = 0;
+        rateLimitDate = today;
+        await saveRateLimitToStorage();
+        console.log('[HandSignDetector] Rate limit reset for new day');
+      }
+    } catch (error) {
+      console.error('[HandSignDetector] Failed to load rate limit:', error);
+    }
+  }
+
+  /**
+   * レート制限カウンターをストレージに保存
+   */
+  async function saveRateLimitToStorage() {
+    try {
+      await chrome.storage.local.set({
+        rateLimitData: {
+          date: rateLimitDate,
+          count: requestCountToday
+        }
+      });
+    } catch (error) {
+      console.error('[HandSignDetector] Failed to save rate limit:', error);
+    }
+  }
 
   /**
    * 統合モーダルを作成（撮影 + 録音）
@@ -3092,6 +3145,14 @@
     const limits = RATE_LIMIT[provider] || RATE_LIMIT.gemini;
     const now = Date.now();
 
+    // 日付が変わっていたらカウンターをリセット
+    const today = getTodayDateString();
+    if (rateLimitDate !== today) {
+      requestCountToday = 0;
+      rateLimitDate = today;
+      saveRateLimitToStorage();
+    }
+
     // 1分経過していたらリセット
     if (now - lastMinuteReset > 60000) {
       requestCountMinute = 0;
@@ -3124,6 +3185,16 @@
     lastRequestTime = Date.now();
     requestCountMinute++;
     requestCountToday++;
+
+    // 日付が変わっていたらリセット
+    const today = getTodayDateString();
+    if (rateLimitDate !== today) {
+      requestCountToday = 1; // 今のリクエストを含める
+      rateLimitDate = today;
+    }
+
+    // ストレージに保存
+    saveRateLimitToStorage();
     updateRateLimitUI();
   }
 
@@ -3294,11 +3365,34 @@
       } else {
         console.warn('[HandSign] Structure failed:', response?.error);
         if (structuredArea && response?.error) {
-          structuredArea.textContent = `エラー: ${response.error}`;
+          // 既存のメモを保持し、エラーを追記
+          const existingText = structuredArea.textContent || '';
+          const timestamp = new Date().toLocaleTimeString('ja-JP');
+          const errorMessage = `\n\n---\n⚠️ [${timestamp}] 構造化エラー: ${response.error}`;
+          if (existingText && !existingText.includes('（AIタブで設定後')) {
+            structuredArea.textContent = existingText + errorMessage;
+          } else {
+            structuredArea.textContent = `⚠️ [${timestamp}] 構造化エラー: ${response.error}`;
+          }
+          structuredArea.classList.remove('placeholder');
+          structuredArea.scrollTop = structuredArea.scrollHeight;
         }
       }
     } catch (error) {
       console.error('[HandSign] Structure error:', error);
+      // 例外発生時も既存メモを保持しエラー追記
+      if (structuredArea) {
+        const existingText = structuredArea.textContent || '';
+        const timestamp = new Date().toLocaleTimeString('ja-JP');
+        const errorMessage = `\n\n---\n⚠️ [${timestamp}] 構造化エラー: ${error.message || '不明なエラー'}`;
+        if (existingText && !existingText.includes('（AIタブで設定後')) {
+          structuredArea.textContent = existingText + errorMessage;
+        } else {
+          structuredArea.textContent = `⚠️ [${timestamp}] 構造化エラー: ${error.message || '不明なエラー'}`;
+        }
+        structuredArea.classList.remove('placeholder');
+        structuredArea.scrollTop = structuredArea.scrollHeight;
+      }
     } finally {
       if (structureBtn) {
         structureBtn.classList.remove('loading');
