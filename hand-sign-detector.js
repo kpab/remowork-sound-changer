@@ -1556,6 +1556,8 @@
         resize: vertical;
         min-height: 200px;
         max-height: 90vh;
+        display: flex;
+        flex-direction: column;
       }
       .rsc-modal-resize-handle {
         position: absolute;
@@ -1618,9 +1620,11 @@
         padding-bottom: 24px;
         overflow-y: auto;
         flex: 1;
+        min-height: 0;
       }
       .rsc-tab-content.active {
-        display: block;
+        display: flex;
+        flex-direction: column;
       }
 
       /* カメラタブ */
