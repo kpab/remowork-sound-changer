@@ -187,6 +187,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 let speechRecognition = null;
 let isTranscribing = false;
 let transcriptText = '';
+let lastInterimTranscript = ''; // 最後の暫定結果を保持
+let networkErrorRetryCount = 0;
+const MAX_NETWORK_RETRIES = 3;
+const NETWORK_RETRY_DELAY = 2000; // 2秒待ってリトライ
 
 /**
  * 文字起こしを開始
@@ -203,7 +207,9 @@ function startTranscription() {
   }
 
   transcriptText = '';
+  lastInterimTranscript = '';
   isTranscribing = true;
+  networkErrorRetryCount = 0;
 
   speechRecognition = new SpeechRecognition();
   speechRecognition.continuous = true;
@@ -225,6 +231,9 @@ function startTranscription() {
 
     if (finalTranscript) {
       transcriptText += finalTranscript + '\n';
+      lastInterimTranscript = ''; // 確定したらクリア
+    } else {
+      lastInterimTranscript = interimTranscript; // 暫定結果を保持
     }
 
     // Content Scriptに結果を送信
@@ -240,11 +249,51 @@ function startTranscription() {
     console.warn('[Offscreen] Speech recognition error:', event.error);
 
     if (event.error === 'network') {
+      networkErrorRetryCount++;
+      console.log(`[Offscreen] Network error, retry ${networkErrorRetryCount}/${MAX_NETWORK_RETRIES}`);
+
+      if (networkErrorRetryCount <= MAX_NETWORK_RETRIES && isTranscribing) {
+        // 再接続中のメッセージを文字起こしに追加
+        const retryMessage = `\n[⏳ 再接続中... (${networkErrorRetryCount}/${MAX_NETWORK_RETRIES})]\n`;
+        chrome.runtime.sendMessage({
+          type: 'TRANSCRIPTION_RESULT',
+          transcript: transcriptText + retryMessage,
+          interim: '',
+          isFinal: false
+        });
+
+        // 少し待ってから再接続を試みる
+        setTimeout(() => {
+          if (isTranscribing && speechRecognition) {
+            try {
+              speechRecognition.start();
+              console.log('[Offscreen] Reconnected after network error');
+              // 再接続成功メッセージを追加
+              transcriptText += `\n[✓ 再接続成功]\n`;
+              chrome.runtime.sendMessage({
+                type: 'TRANSCRIPTION_RESULT',
+                transcript: transcriptText,
+                interim: '',
+                isFinal: false
+              });
+              networkErrorRetryCount = 0;
+            } catch (e) {
+              console.warn('[Offscreen] Reconnection failed:', e);
+            }
+          }
+        }, NETWORK_RETRY_DELAY);
+        return;
+      }
+
+      // リトライ上限に達した場合はエラーメッセージを文字起こしに追加
+      const errorMessage = `\n[❌ ネットワークエラー：再接続に失敗しました]\n`;
+      transcriptText += errorMessage;
       isTranscribing = false;
       chrome.runtime.sendMessage({
         type: 'TRANSCRIPTION_ERROR',
         error: 'network',
-        message: 'ネットワークエラー：文字起こし利用不可'
+        message: 'ネットワークエラー：文字起こし利用不可',
+        transcript: transcriptText
       });
       return;
     }
@@ -272,6 +321,19 @@ function startTranscription() {
   };
 
   speechRecognition.onend = () => {
+    // 再起動前に暫定結果があれば確定として保存
+    if (lastInterimTranscript) {
+      transcriptText += lastInterimTranscript + '\n';
+      lastInterimTranscript = '';
+      // 更新を通知
+      chrome.runtime.sendMessage({
+        type: 'TRANSCRIPTION_RESULT',
+        transcript: transcriptText,
+        interim: '',
+        isFinal: true
+      });
+    }
+
     // まだ文字起こし中なら再開
     if (isTranscribing) {
       try {

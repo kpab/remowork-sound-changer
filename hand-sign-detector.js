@@ -3370,15 +3370,26 @@
   });
 
   window.addEventListener('remowork-transcription-error', (event) => {
-    const { error, message } = event.detail;
+    const { error, message, transcript } = event.detail;
     isTranscribing = false;
 
     if (error === 'network') {
-      updateTranscriptDisplay(
-        '⚠️ ネットワークエラー\n\n' +
-        'Braveブラウザでは利用できません。\n' +
-        'Google Chromeをお使いください。'
-      );
+      // 文字起こし内容がある場合は保持してエラーメッセージを追加
+      if (transcript) {
+        transcriptText = transcript;
+        updateTranscriptDisplay(
+          transcript +
+          '\n\n⚠️ ネットワークエラー\n' +
+          'Braveブラウザでは利用できません。\n' +
+          'Google Chromeをお使いください。'
+        );
+      } else {
+        updateTranscriptDisplay(
+          '⚠️ ネットワークエラー\n\n' +
+          'Braveブラウザでは利用できません。\n' +
+          'Google Chromeをお使いください。'
+        );
+      }
     } else if (error === 'not-allowed') {
       updateTranscriptDisplay('⚠️ マイクへのアクセスが拒否されました');
     } else {
