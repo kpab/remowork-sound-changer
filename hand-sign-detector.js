@@ -2136,6 +2136,41 @@
         padding: 8px;
       }
 
+      /* レスポンシブ: 狭い画面でカメラを優先 */
+      @media (max-height: 800px) {
+        .rsc-camera-body {
+          height: 200px;
+        }
+        .rsc-saved-images-grid {
+          grid-template-columns: repeat(6, 1fr);
+          gap: 4px;
+        }
+        .rsc-saved-image-item {
+          border-radius: 4px;
+        }
+        .rsc-saved-image-delete {
+          width: 16px;
+          height: 16px;
+          font-size: 10px;
+          top: 2px;
+          right: 2px;
+        }
+        .rsc-saved-images-section {
+          margin-bottom: 8px;
+        }
+        .rsc-saved-images-title {
+          font-size: 11px;
+        }
+      }
+      @media (max-height: 700px) {
+        .rsc-camera-body {
+          height: 180px;
+        }
+        .rsc-saved-images-grid {
+          grid-template-columns: repeat(8, 1fr);
+        }
+      }
+
       /* 録音タブ */
       .rsc-recorder-top {
         display: flex;
