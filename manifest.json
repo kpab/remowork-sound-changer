@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Remowork Sound Changer",
-  "version": "1.2.12",
+  "version": "1.3.0",
   "description": "Remoworkの着信音・通知音をカスタマイズ",
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
@@ -57,7 +57,8 @@
         "virtual-camera.js",
         "sounds/*/*",
         "images/defaults/*",
-        "lib/mediapipe/*"
+        "lib/mediapipe/*",
+        "lib/face-api/*"
       ],
       "matches": ["https://stage.remowork.biz/*", "https://remowork.biz/*"]
     }

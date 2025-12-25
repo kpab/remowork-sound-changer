@@ -78,3 +78,145 @@ remowork-sound-changer/
 - プリセット音声を使用する場合は `sounds/` ディレクトリに mp3 ファイルを配置
 - 音声ファイル名は `{id}.mp3` 形式（例: `incoming.mp3`）
 - カスタム音声はBase64でIndexedDBに保存
+
+---
+
+## 技術アーキテクチャ：オフスクリーンドキュメント
+
+### Chrome拡張の実行コンテキスト
+
+Chrome拡張機能には複数の実行コンテキストがあり、それぞれ制約が異なる：
+
+| コンテキスト | 特徴 | 制約 |
+|------------|------|------|
+| **Service Worker** (background.js) | 拡張機能のバックグラウンド処理 | DOM操作不可、永続化不可 |
+| **Content Script** (content.js等) | Webページに注入されるスクリプト | ページのJSと分離された実行空間 |
+| **ページコンテキスト** (inject.js) | Webページ本来のJS空間 | 拡張機能APIにアクセス不可 |
+| **Offscreen Document** (offscreen.js) | 隠れたHTMLドキュメント | DOM操作可能、拡張機能API利用可能 |
+
+### なぜオフスクリーン経由で処理するのか
+
+#### 問題：ページコンテキストへのインジェクトの限界
+
+当初、表情分析(face-api.js)をページコンテキストにインジェクトする方式を試みたが、以下の問題が発生：
+
+1. **CSP (Content Security Policy) 制限**
+   - Remoworkサイトの CSP により、インラインスクリプトがブロックされる
+   - 設定を渡すためのインラインスクリプトが実行できない
+
+2. **実行空間の分離**
+   - Content Script と ページコンテキストは別の JavaScript 実行空間
+   - `window.__remoworkExpressionAnalyzer` を Content Script から直接呼び出せない
+   - カスタムイベントでの通信が必要になり、実装が複雑化
+
+3. **拡張機能リソースへのアクセス**
+   - ページコンテキストから `chrome-extension://` URL への fetch が失敗することがある
+   - モデルファイルの読み込みに失敗
+
+#### 解決：オフスクリーンドキュメント
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Webページ (remowork.biz)                                     │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ Content Script (hand-sign-detector.js)                  ││
+│  │  - メンバー画像を検出                                     ││
+│  │  - Canvas に画像を描画                                    ││
+│  │  - ImageData を抽出                                       ││
+│  └────────────────────────┬────────────────────────────────┘│
+└───────────────────────────┼─────────────────────────────────┘
+                            │ chrome.runtime.sendMessage
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Service Worker (background.js)                              │
+│  - メッセージをオフスクリーンに転送                           │
+└────────────────────────────┬────────────────────────────────┘
+                             │ message forwarding
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Offscreen Document (offscreen.html + offscreen.js)          │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ - MediaPipe (ハンドサイン検出)                           ││
+│  │ - face-api.js (表情分析)                                 ││
+│  │ - Web Speech API (文字起こし)                            ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ✓ DOM操作可能 (Canvas, Image)                              │
+│  ✓ 拡張機能リソースに直接アクセス可能                        │
+│  ✓ CSP制限なし（拡張機能のCSPが適用）                        │
+│  ✓ chrome.* API が利用可能                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### オフスクリーンの利点
+
+| 利点 | 説明 |
+|------|------|
+| **CSP回避** | 拡張機能独自のCSPが適用され、サイトのCSPに影響されない |
+| **DOM操作** | Canvas, Image, Video などの DOM 要素が利用可能 |
+| **リソースアクセス** | `chrome.runtime.getURL()` で拡張機能内のファイルに確実にアクセス |
+| **API統一** | ハンドサインも表情分析も同じ通信パターンで実装できる |
+| **デバッグ容易** | Service Worker の DevTools からログを確認できる |
+
+### 実装パターン
+
+```javascript
+// Content Script (hand-sign-detector.js)
+async function analyzeExpression(member) {
+  // 1. 画像を Canvas に読み込み
+  const canvas = await loadImageToCanvas(member.imageUrl);
+
+  // 2. ImageData を抽出（縮小してサイズ削減）
+  const imageData = ctx.getImageData(0, 0, width, height);
+
+  // 3. オフスクリーンに送信
+  const result = await chrome.runtime.sendMessage({
+    type: 'ANALYZE_EXPRESSION',
+    imageData: {
+      data: Array.from(imageData.data),  // Uint8ClampedArray → Array
+      width: imageData.width,
+      height: imageData.height
+    }
+  });
+
+  return result;
+}
+
+// Offscreen Document (offscreen.js)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'ANALYZE_EXPRESSION') {
+    analyzeExpression(message.imageData).then(sendResponse);
+    return true;  // 非同期レスポンスを示す
+  }
+});
+
+async function analyzeExpression(imageData) {
+  // ImageData から Canvas を作成
+  const canvas = document.getElementById('canvas');
+  ctx.putImageData(new ImageData(
+    new Uint8ClampedArray(imageData.data),
+    imageData.width,
+    imageData.height
+  ), 0, 0);
+
+  // face-api.js で分析
+  const detections = await faceapi
+    .detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions())
+    .withFaceExpressions();
+
+  return { success: true, expressions: ... };
+}
+```
+
+### 注意点
+
+1. **ImageData のシリアライズ**
+   - `Uint8ClampedArray` はメッセージで送信できないため `Array.from()` で変換
+   - 受信側で `new Uint8ClampedArray()` に戻す
+
+2. **画像サイズの最適化**
+   - 大きな画像はメッセージサイズが膨大になる
+   - 256px 程度に縮小してから送信
+
+3. **非同期レスポンス**
+   - `addListener` のコールバックで `return true` を返す
+   - `sendResponse` を非同期で呼び出し可能にする

@@ -1,12 +1,18 @@
 /**
- * Offscreen Document for Hand Pose Detection
- * MediaPipe Tasks Vision を使用した本格的な手検出
+ * Offscreen Document for Hand Pose & Face Expression Detection
+ * MediaPipe Tasks Vision + face-api.js を使用
+ *
+ * Note: fetch ポリフィルは fetch-polyfill.js で適用済み
  */
 
 import { HandLandmarker, FilesetResolver } from './lib/mediapipe/vision_bundle.js';
 
 let handLandmarker = null;
 let isInitialized = false;
+
+// 表情分析の初期化状態
+let isFaceApiInitialized = false;
+let faceApiInitPromise = null;
 
 // 初期化中のPromiseを保持（複数の呼び出しを待機させるため）
 let initPromise = null;
@@ -329,7 +335,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({
         initialized: isInitialized,
         initializing: initPromise !== null && !isInitialized,
-        lastError: lastInitError
+        lastError: lastInitError,
+        faceApiInitialized: isFaceApiInitialized
+      });
+      return true;
+
+    // 表情分析
+    case 'INIT_FACE_API':
+      initFaceApi().then(result => {
+        sendResponse(result);
+      });
+      return true;
+
+    case 'ANALYZE_EXPRESSION':
+      analyzeExpression(message.imageData).then(result => {
+        sendResponse(result);
       });
       return true;
 
@@ -544,6 +564,220 @@ function stopTranscription() {
  */
 function getTranscript() {
   return { success: true, transcript: transcriptText, isTranscribing };
+}
+
+// =============================================
+// 表情分析機能 (face-api.js)
+// =============================================
+
+/**
+ * XHRでファイルを読み込む（chrome-extension:// URL対応）
+ */
+function loadFileXHR(url, responseType = 'arraybuffer') {
+  return new Promise((resolve, reject) => {
+    console.log('[Offscreen] XHR loading:', url);
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.responseType = responseType;
+    xhr.onload = () => {
+      if (xhr.status === 200 || xhr.status === 0) {
+        console.log('[Offscreen] XHR loaded:', url);
+        resolve(xhr.response);
+      } else {
+        reject(new Error(`HTTP ${xhr.status} for ${url}`));
+      }
+    };
+    xhr.onerror = (e) => {
+      console.error('[Offscreen] XHR error:', url, e);
+      reject(new Error('XHR failed for ' + url));
+    };
+    xhr.send();
+  });
+}
+
+/**
+ * face-api.js を初期化
+ * XHRでモデルファイルを事前ロードし、カスタムIOHandlerを使用
+ */
+async function initFaceApi() {
+  if (isFaceApiInitialized) return { success: true };
+
+  if (faceApiInitPromise) {
+    console.log('[Offscreen] Waiting for existing face-api initialization...');
+    return faceApiInitPromise;
+  }
+
+  faceApiInitPromise = (async () => {
+    try {
+      console.log('[Offscreen] Initializing face-api.js...');
+
+      // face-api.js がグローバルに読み込まれているか確認
+      if (typeof faceapi === 'undefined') {
+        throw new Error('face-api.js is not loaded');
+      }
+
+      const modelBasePath = chrome.runtime.getURL('lib/face-api/');
+      console.log('[Offscreen] Face-api model path:', modelBasePath);
+
+      // Tiny Face Detector モデルを読み込み
+      console.log('[Offscreen] Loading Tiny Face Detector...');
+      await loadFaceApiModel(faceapi.nets.tinyFaceDetector, modelBasePath, 'tiny_face_detector_model');
+      console.log('[Offscreen] Tiny Face Detector loaded');
+
+      // Face Expression モデルを読み込み
+      console.log('[Offscreen] Loading Face Expression Net...');
+      await loadFaceApiModel(faceapi.nets.faceExpressionNet, modelBasePath, 'face_expression_model');
+      console.log('[Offscreen] Face Expression Net loaded');
+
+      isFaceApiInitialized = true;
+      console.log('[Offscreen] face-api.js initialized successfully');
+      return { success: true };
+    } catch (error) {
+      const errorMsg = error?.message || String(error);
+      console.error('[Offscreen] Failed to initialize face-api:', errorMsg, error);
+      faceApiInitPromise = null;
+      return { success: false, error: errorMsg };
+    }
+  })();
+
+  return faceApiInitPromise;
+}
+
+/**
+ * face-api.jsモデルをXHRで読み込む
+ * TensorFlow.jsのdecodeWeightsを使用してweightsMapを作成し、loadFromWeightsMapで読み込み
+ */
+async function loadFaceApiModel(net, basePath, modelName) {
+  // マニフェストファイルをXHRで読み込み
+  const manifestUrl = basePath + modelName + '-weights_manifest.json';
+  console.log('[Offscreen] Loading manifest:', manifestUrl);
+  const manifestText = await loadFileXHR(manifestUrl, 'text');
+  const manifest = JSON.parse(manifestText);
+  console.log('[Offscreen] Manifest loaded, paths:', manifest[0].paths);
+
+  // 全ての重みファイルをXHRで読み込み、TensorFlow.jsでデコード
+  const weightsMap = {};
+  for (const group of manifest) {
+    for (const path of group.paths) {
+      const weightsUrl = basePath + path;
+      console.log('[Offscreen] Loading weights:', weightsUrl);
+      const weightsBuffer = await loadFileXHR(weightsUrl, 'arraybuffer');
+      console.log('[Offscreen] Weights loaded, size:', weightsBuffer.byteLength);
+
+      // TensorFlow.jsを使って重みをデコード
+      const weightSpecs = group.weights;
+      console.log('[Offscreen] Decoding weights, specs count:', weightSpecs.length);
+
+      try {
+        // faceapi.tf.io.decodeWeights は weightsMap (name -> Tensor) を返す
+        const decoded = faceapi.tf.io.decodeWeights(weightsBuffer, weightSpecs);
+        console.log('[Offscreen] Decoded weights:', Object.keys(decoded));
+
+        // weightsMapにマージ
+        for (const [name, tensor] of Object.entries(decoded)) {
+          weightsMap[name] = tensor;
+        }
+      } catch (decodeError) {
+        console.error('[Offscreen] Failed to decode weights:', decodeError);
+        throw decodeError;
+      }
+    }
+  }
+
+  console.log('[Offscreen] Total weights loaded:', Object.keys(weightsMap).length);
+
+  // face-api.jsのloadFromUriを使用（fetchポリフィルでXHRに変換される）
+  // URLの末尾にスラッシュがあることを確認
+  const normalizedBasePath = basePath.endsWith('/') ? basePath : basePath + '/';
+  console.log('[Offscreen] Loading model via loadFromUri:', normalizedBasePath);
+  await net.loadFromUri(normalizedBasePath);
+  console.log('[Offscreen] Model loaded successfully via loadFromUri');
+}
+
+/**
+ * 表情を分析
+ * @param {Object} imageData - 画像データ
+ * @returns {Object} 分析結果（感情係数）
+ */
+async function analyzeExpression(imageData) {
+  if (!isFaceApiInitialized) {
+    const result = await initFaceApi();
+    if (!result.success) {
+      return { success: false, error: `Face-api init failed: ${result.error}` };
+    }
+  }
+
+  try {
+    // ImageData から Canvas を作成
+    const canvas = document.getElementById('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(imageData.data),
+        imageData.width,
+        imageData.height
+      ),
+      0, 0
+    );
+
+    // 顔検出 + 表情分析
+    const detections = await faceapi
+      .detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions())
+      .withFaceExpressions();
+
+    if (!detections || detections.length === 0) {
+      return { success: true, expressions: null, message: '顔が検出されませんでした' };
+    }
+
+    // 最初の顔の表情を取得
+    const expressions = detections[0].expressions;
+
+    // 生の値をログ出力（デバッグ用）
+    console.log('[Offscreen] Raw expressions:', {
+      happy: expressions.happy.toFixed(4),
+      sad: expressions.sad.toFixed(4),
+      angry: expressions.angry.toFixed(4),
+      fearful: expressions.fearful.toFixed(4),
+      disgusted: expressions.disgusted.toFixed(4),
+      surprised: expressions.surprised.toFixed(4),
+      neutral: expressions.neutral.toFixed(4)
+    });
+
+    // 感情係数に変換（0-100のスコア、小数点1桁）
+    const emotionScores = {
+      happy: Math.round(expressions.happy * 1000) / 10,      // 幸福係数
+      sad: Math.round(expressions.sad * 1000) / 10,          // 悲哀係数
+      angry: Math.round(expressions.angry * 1000) / 10,      // 憤怒係数
+      fearful: Math.round(expressions.fearful * 1000) / 10,  // 恐怖係数
+      disgusted: Math.round(expressions.disgusted * 1000) / 10, // 嫌悪係数
+      surprised: Math.round(expressions.surprised * 1000) / 10, // 驚愕係数
+      neutral: Math.round(expressions.neutral * 1000) / 10   // 平静係数
+    };
+
+    // 最も高い感情を特定
+    let dominant = 'neutral';
+    let maxScore = emotionScores.neutral;
+    for (const [emotion, score] of Object.entries(emotionScores)) {
+      if (score > maxScore) {
+        maxScore = score;
+        dominant = emotion;
+      }
+    }
+
+    console.log('[Offscreen] Expression analysis:', emotionScores, 'dominant:', dominant);
+
+    return {
+      success: true,
+      expressions: emotionScores,
+      dominant: dominant,
+      faceCount: detections.length
+    };
+  } catch (error) {
+    console.error('[Offscreen] Expression analysis error:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 // 初期化を開始

@@ -2,10 +2,13 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Hand Detection (Offscreen)</title>
+  <title>Hand & Face Detection (Offscreen)</title>
 </head>
 <body>
   <canvas id="canvas" style="display:none;"></canvas>
+  <!-- fetch ポリフィルを最初に適用（face-api.jsより前） -->
+  <script src="fetch-polyfill.js"></script>
+  <script src="lib/face-api/face-api.min.js"></script>
   <script type="module" src="offscreen.js"></script>
 </body>
 </html>

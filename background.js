@@ -445,6 +445,18 @@ async function handleMessage(message) {
       const statusResult = await sendToOffscreen({ type: 'GET_STATUS' });
       return statusResult;
 
+    // 表情分析関連
+    case 'INIT_FACE_API':
+      const faceApiResult = await sendToOffscreen({ type: 'INIT_FACE_API' });
+      return faceApiResult;
+
+    case 'ANALYZE_EXPRESSION':
+      const expressionResult = await sendToOffscreen({
+        type: 'ANALYZE_EXPRESSION',
+        imageData: message.imageData
+      });
+      return expressionResult;
+
     // 文字起こし関連
     case 'START_TRANSCRIPTION':
       const startResult = await sendToOffscreen({ type: 'START_TRANSCRIPTION' });

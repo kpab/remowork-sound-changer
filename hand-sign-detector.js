@@ -6,7 +6,7 @@
 (function() {
   'use strict';
 
-  const DETECTION_INTERVAL = 10000; // 10秒ごとにチェック（画像URL変更検知用）
+  const DETECTION_INTERVAL = 10000; // 10秒ごとにチェック（画像URL変更検知用、キャッシュがあれば軽量）
   const NOTIFICATION_COOLDOWN = 300000; // 同じ人からの通知は5分間抑制
   const PHOTO_INTERVAL = 297; // 写真撮影間隔（4分57秒）- Remoworkより少し早めにカウントダウン終了
 
@@ -208,9 +208,15 @@
           <button class="rsc-record-btn" title="録音">🎙️ 録音</button>
         </div>
         <div class="rsc-timer-row">
+          <button class="rsc-expression-btn" title="感情係数を表示">🎭 感情係数</button>
           <button class="rsc-tools-btn" title="事前撮影">📸 事前撮影</button>
           <button class="rsc-sound-btn" title="音声変更">🔊 音声変更</button>
           <button class="rsc-notify-btn" title="通知設定">🔔 通知設定</button>
+        </div>
+        <div class="rsc-team-mood" title="チーム全体のムード">
+          <span class="rsc-team-mood-label">Team Mood:</span>
+          <span class="rsc-team-mood-emoji">😐</span>
+          <span class="rsc-team-mood-text">Neutral</span>
         </div>
       </div>
     `;
@@ -451,6 +457,378 @@
           background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
           transform: scale(1.05);
         }
+        .rsc-expression-btn {
+          height: 32px;
+          padding: 0 10px;
+          border: none;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+          font-size: 13px;
+          color: #fff;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          white-space: nowrap;
+        }
+        .rsc-expression-btn:hover {
+          background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+          transform: scale(1.05);
+        }
+        .rsc-expression-btn.rsc-active {
+          background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+          box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+        }
+        /* チーム全体のムード表示 */
+        .rsc-team-mood {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 8px;
+          margin-top: 4px;
+          transition: all 0.3s;
+        }
+        .rsc-team-mood-label {
+          color: #888;
+          font-size: 11px;
+        }
+        .rsc-team-mood-emoji {
+          font-size: 18px;
+          transition: transform 0.3s;
+        }
+        .rsc-team-mood-text {
+          font-size: 12px;
+          font-weight: bold;
+          transition: color 0.3s;
+        }
+        /* 感情係数オーバーレイ（PSYCHO-PASS風） */
+        .rsc-expression-overlay {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.85) 100%);
+          padding: 8px 6px 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          font-family: 'Consolas', 'Monaco', monospace;
+          z-index: 10;
+        }
+        .rsc-expression-item {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          color: #00ff88;
+          text-shadow: 0 0 4px rgba(0, 255, 136, 0.5);
+        }
+        .rsc-expression-item.dominant {
+          color: #ff6b6b;
+          text-shadow: 0 0 6px rgba(255, 107, 107, 0.7);
+          font-weight: bold;
+        }
+        .rsc-expression-emoji {
+          font-size: 12px;
+          filter: drop-shadow(0 0 2px currentColor);
+        }
+        .rsc-expression-label {
+          flex: 1;
+          letter-spacing: 0.5px;
+        }
+        .rsc-expression-score {
+          font-weight: bold;
+          min-width: 24px;
+          text-align: right;
+        }
+        .rsc-expression-score::after {
+          content: '%';
+          font-size: 8px;
+          opacity: 0.7;
+        }
+        .rsc-radar-chart {
+          display: block;
+          filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.5));
+        }
+        /* チャート・パラメータ・NotFound共通のボックススタイル */
+        .rsc-expression-overlay.chart-mode,
+        .rsc-expression-overlay.parameter-mode {
+          position: absolute;
+          bottom: 22px;
+          right: 2px;
+          top: auto;
+          left: auto;
+          width: 50px;
+          height: 50px;
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          pointer-events: auto;
+          cursor: pointer;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .rsc-expression-overlay.chart-mode:hover,
+        .rsc-expression-overlay.parameter-mode:hover {
+          transform: scale(1.1);
+          box-shadow: 0 0 8px rgba(0, 255, 136, 0.6);
+        }
+        /* 検出なし表示（チャートと同じサイズ 50x50） */
+        .rsc-expression-notfound {
+          /* 親の共通ボックススタイルを継承 */
+        }
+        .rsc-expression-notfound-text {
+          color: #888;
+          font-size: 8px;
+          white-space: nowrap;
+          text-align: center;
+        }
+        /* 感情詳細モーダル */
+        .rsc-expression-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 100010;
+          display: none;
+        }
+        .rsc-expression-modal.rsc-active {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .rsc-expression-modal-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+        }
+        .rsc-expression-modal-content {
+          position: relative;
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border: 1px solid rgba(0, 255, 136, 0.4);
+          border-radius: 16px;
+          padding: 20px;
+          min-width: 280px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 255, 136, 0.2);
+        }
+        .rsc-expression-modal-close {
+          position: absolute;
+          top: 8px;
+          right: 12px;
+          background: none;
+          border: none;
+          color: #888;
+          font-size: 24px;
+          cursor: pointer;
+          transition: color 0.2s;
+        }
+        .rsc-expression-modal-close:hover {
+          color: #ff6b6b;
+        }
+        .rsc-expression-modal-name {
+          color: #00ff88;
+          font-size: 16px;
+          font-weight: bold;
+          text-align: center;
+          margin-bottom: 16px;
+          text-shadow: 0 0 4px rgba(0, 255, 136, 0.5);
+        }
+        .rsc-expression-modal-chart {
+          display: flex;
+          justify-content: center;
+          margin-bottom: 16px;
+        }
+        .rsc-expression-modal-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .rsc-expression-modal-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+        }
+        .rsc-expression-modal-item-emoji {
+          font-size: 20px;
+        }
+        .rsc-expression-modal-item-label {
+          color: #e0e0e0;
+          font-size: 14px;
+          flex: 1;
+        }
+        .rsc-expression-modal-item-score {
+          color: #00ff88;
+          font-size: 16px;
+          font-weight: bold;
+        }
+        .rsc-expression-modal-item.dominant {
+          background: rgba(0, 255, 136, 0.15);
+          border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+        .rsc-expression-modal-item.dominant .rsc-expression-modal-item-score {
+          color: #ff6b6b;
+          text-shadow: 0 0 4px rgba(255, 107, 107, 0.5);
+        }
+        .rsc-expression-single {
+          /* 親の共通ボックススタイルを継承 */
+        }
+        .rsc-expression-text {
+          color: #ff6b35;
+          font-size: 10px;
+          font-weight: bold;
+          text-shadow: 0 0 3px #ff6b35, 0 0 6px rgba(255, 107, 53, 0.5);
+          white-space: nowrap;
+        }
+        /* 感情係数選択メニュー */
+        .rsc-expression-menu {
+          position: fixed;
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border: 1px solid rgba(139, 92, 246, 0.4);
+          border-radius: 12px;
+          padding: 16px;
+          z-index: 100002;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(139, 92, 246, 0.2);
+          min-width: 280px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .rsc-expression-menu-title {
+          color: #a78bfa;
+          font-size: 14px;
+          font-weight: 600;
+          margin-bottom: 12px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .rsc-expression-menu-subtitle {
+          color: #888;
+          font-size: 11px;
+          margin-bottom: 10px;
+        }
+        .rsc-expression-menu-items {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .rsc-expression-menu-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 10px;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .rsc-expression-menu-item:hover {
+          background: rgba(139, 92, 246, 0.2);
+        }
+        .rsc-expression-menu-item.selected {
+          background: rgba(139, 92, 246, 0.3);
+          border: 1px solid rgba(139, 92, 246, 0.5);
+        }
+        .rsc-expression-menu-item input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          accent-color: #8b5cf6;
+        }
+        .rsc-expression-menu-item-emoji {
+          font-size: 18px;
+        }
+        .rsc-expression-menu-item-label {
+          color: #e0e0e0;
+          font-size: 13px;
+          flex: 1;
+        }
+        .rsc-expression-menu-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 14px;
+          padding-top: 12px;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .rsc-expression-menu-btn {
+          flex: 1;
+          padding: 8px 14px;
+          border: none;
+          border-radius: 6px;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .rsc-expression-menu-btn.primary {
+          background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+          color: #fff;
+        }
+        .rsc-expression-menu-btn.primary:hover {
+          transform: scale(1.02);
+          box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4);
+        }
+        .rsc-expression-menu-btn.secondary {
+          background: rgba(255, 255, 255, 0.1);
+          color: #aaa;
+        }
+        .rsc-expression-menu-btn.secondary:hover {
+          background: rgba(255, 255, 255, 0.15);
+        }
+        .rsc-expression-menu-btn.danger {
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          color: #fff;
+        }
+        .rsc-expression-menu-btn.danger:hover {
+          transform: scale(1.02);
+          box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+        }
+        .rsc-expression-menu-section {
+          margin-bottom: 12px;
+        }
+        .rsc-expression-display-modes {
+          display: flex;
+          gap: 8px;
+        }
+        .rsc-expression-mode-item {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 10px 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          border: 1px solid transparent;
+        }
+        .rsc-expression-mode-item:hover {
+          background: rgba(139, 92, 246, 0.2);
+        }
+        .rsc-expression-mode-item.selected {
+          background: rgba(139, 92, 246, 0.3);
+          border-color: rgba(139, 92, 246, 0.5);
+        }
+        .rsc-expression-mode-item input[type="radio"] {
+          display: none;
+        }
+        .rsc-expression-mode-icon {
+          font-size: 18px;
+        }
+        .rsc-expression-mode-label {
+          color: #e0e0e0;
+          font-size: 12px;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -463,6 +841,9 @@
 
     // 事前撮影ボタンのハンドラー
     setupToolsButton();
+
+    // 感情係数ボタンのハンドラー
+    setupExpressionButton();
 
     // ドラッグ機能
     setupDraggable();
@@ -529,6 +910,227 @@
         timerMain.classList.remove('rsc-countdown-enabled');
         badge.textContent = '🔇OFF';
       }
+    }
+  }
+
+  /**
+   * 感情係数ボタンのクリックハンドラー
+   */
+  function setupExpressionButton() {
+    const expressionBtn = timerElement.querySelector('.rsc-expression-btn');
+    if (expressionBtn) {
+      expressionBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openExpressionMenu(expressionBtn);
+      });
+    }
+  }
+
+  /**
+   * 感情係数選択メニューを開く
+   */
+  function openExpressionMenu(anchorElement) {
+    // 既存のメニューを閉じる
+    closeExpressionMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'rsc-expression-menu';
+    menu.id = 'rsc-expression-menu';
+
+    // パラメータ表示用：ラジオボタン形式（1つの感情のみ選択可能）
+    const emotionKeys = Object.keys(EMOTION_LABELS);
+    const parameterItemsHtml = emotionKeys.map(key => {
+      const isSelected = selectedSingleEmotion === key;
+      const label = EMOTION_LABELS[key];
+      const emoji = EMOTION_EMOJI[key];
+      return `
+        <label class="rsc-expression-menu-item ${isSelected ? 'selected' : ''}" data-emotion="${key}">
+          <input type="radio" name="singleEmotion" value="${key}" ${isSelected ? 'checked' : ''}>
+          <span class="rsc-expression-menu-item-emoji">${emoji}</span>
+          <span class="rsc-expression-menu-item-label">${label}</span>
+        </label>
+      `;
+    }).join('');
+
+    menu.innerHTML = `
+      <div class="rsc-expression-menu-title">🎭 感情係数設定</div>
+      <div class="rsc-expression-menu-section">
+        <div class="rsc-expression-menu-subtitle">表示形式</div>
+        <div class="rsc-expression-display-modes">
+          <label class="rsc-expression-mode-item ${expressionDisplayMode === 'chart' ? 'selected' : ''}" data-mode="chart">
+            <input type="radio" name="displayMode" value="chart" ${expressionDisplayMode === 'chart' ? 'checked' : ''}>
+            <span class="rsc-expression-mode-icon">📊</span>
+            <span class="rsc-expression-mode-label">チャート</span>
+          </label>
+          <label class="rsc-expression-mode-item ${expressionDisplayMode === 'parameter' ? 'selected' : ''}" data-mode="parameter">
+            <input type="radio" name="displayMode" value="parameter" ${expressionDisplayMode === 'parameter' ? 'checked' : ''}>
+            <span class="rsc-expression-mode-icon">📈</span>
+            <span class="rsc-expression-mode-label">パラメータ</span>
+          </label>
+        </div>
+      </div>
+      <div class="rsc-expression-menu-section rsc-parameter-section" style="${expressionDisplayMode === 'parameter' ? '' : 'display: none;'}">
+        <div class="rsc-expression-menu-subtitle">表示する係数</div>
+        <div class="rsc-expression-menu-items">
+          ${parameterItemsHtml}
+        </div>
+      </div>
+      <div class="rsc-expression-menu-actions">
+        <button class="rsc-expression-menu-btn secondary" data-action="close">閉じる</button>
+        <button class="rsc-expression-menu-btn ${expressionAnalysisEnabled ? 'primary' : 'secondary'}" data-action="analyze">
+          ${expressionAnalysisEnabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+    `;
+
+    // 位置を設定（ボタンの上・中央寄せで表示）
+    const rect = anchorElement.getBoundingClientRect();
+    menu.style.bottom = `${window.innerHeight - rect.top + 10}px`;
+    // メニューの幅（min-width: 280px）を考慮して中央寄せ
+    const menuWidth = 280;
+    const leftPos = Math.max(20, rect.left + rect.width / 2 - menuWidth / 2);
+    menu.style.left = `${leftPos}px`;
+
+    document.body.appendChild(menu);
+
+    // 表示形式選択のイベントハンドラー
+    menu.querySelectorAll('.rsc-expression-mode-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const mode = item.dataset.mode;
+        expressionDisplayMode = mode;
+
+        // 選択状態を更新
+        menu.querySelectorAll('.rsc-expression-mode-item').forEach(m => {
+          m.classList.toggle('selected', m.dataset.mode === mode);
+          m.querySelector('input').checked = m.dataset.mode === mode;
+        });
+
+        // パラメータセクションの表示/非表示を切り替え
+        const parameterSection = menu.querySelector('.rsc-parameter-section');
+        if (parameterSection) {
+          parameterSection.style.display = mode === 'parameter' ? '' : 'none';
+        }
+
+        // 設定を保存
+        saveExpressionSettings();
+
+        // 分析中なら再描画
+        if (expressionAnalysisEnabled) {
+          analyzeAllExpressions();
+        }
+      });
+    });
+
+    // 感情選択のイベントハンドラー（パラメータ表示用：1つの感情のみ選択）
+    menu.querySelectorAll('.rsc-expression-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const emotion = item.dataset.emotion;
+        selectedSingleEmotion = emotion;
+
+        // 選択状態を更新
+        menu.querySelectorAll('.rsc-expression-menu-item').forEach(m => {
+          m.classList.toggle('selected', m.dataset.emotion === emotion);
+          m.querySelector('input').checked = m.dataset.emotion === emotion;
+        });
+
+        // 設定を保存
+        saveExpressionSettings();
+
+        // 分析中なら再描画
+        if (expressionAnalysisEnabled) {
+          analyzeAllExpressions();
+        }
+      });
+    });
+
+    // アクションボタン
+    menu.querySelector('[data-action="close"]').addEventListener('click', closeExpressionMenu);
+    menu.querySelector('[data-action="analyze"]').addEventListener('click', async () => {
+      expressionAnalysisEnabled = !expressionAnalysisEnabled;
+
+      const btn = timerElement.querySelector('.rsc-expression-btn');
+      if (btn) {
+        btn.classList.toggle('rsc-active', expressionAnalysisEnabled);
+      }
+
+      if (expressionAnalysisEnabled) {
+        // 感情分析を開始（オフスクリーン経由）
+        showTimerToast('感情係数の分析を開始...');
+        analyzeAllExpressions();
+      } else {
+        // オーバーレイを削除
+        document.querySelectorAll('.rsc-expression-overlay').forEach(el => el.remove());
+        showTimerToast('感情係数の分析を停止');
+      }
+
+      // 設定を保存
+      saveExpressionSettings();
+      closeExpressionMenu();
+    });
+
+    // 外側クリックで閉じる
+    setTimeout(() => {
+      document.addEventListener('click', handleExpressionMenuOutsideClick);
+    }, 0);
+  }
+
+  /**
+   * 感情係数メニューを閉じる
+   */
+  function closeExpressionMenu() {
+    const menu = document.getElementById('rsc-expression-menu');
+    if (menu) menu.remove();
+    document.removeEventListener('click', handleExpressionMenuOutsideClick);
+  }
+
+  /**
+   * メニュー外クリックハンドラー
+   */
+  function handleExpressionMenuOutsideClick(e) {
+    const menu = document.getElementById('rsc-expression-menu');
+    if (menu && !menu.contains(e.target) && !e.target.closest('.rsc-expression-btn')) {
+      closeExpressionMenu();
+    }
+  }
+
+  /**
+   * 感情係数設定を保存
+   */
+  async function saveExpressionSettings() {
+    try {
+      settings.expression = settings.expression || {};
+      settings.expression.selectedEmotions = selectedEmotions;
+      settings.expression.displayMode = expressionDisplayMode;
+      settings.expression.singleEmotion = selectedSingleEmotion;
+      settings.expression.enabled = expressionAnalysisEnabled;
+      await chrome.storage.local.set({ handSignSettings: settings });
+    } catch (error) {
+      console.error('[HandSign] Failed to save expression settings:', error);
+    }
+  }
+
+  /**
+   * 感情係数設定を読み込む
+   */
+  async function loadExpressionSettings() {
+    try {
+      const result = await chrome.storage.local.get('handSignSettings');
+      if (result.handSignSettings?.expression) {
+        if (result.handSignSettings.expression.selectedEmotions) {
+          selectedEmotions = result.handSignSettings.expression.selectedEmotions;
+        }
+        if (result.handSignSettings.expression.displayMode) {
+          expressionDisplayMode = result.handSignSettings.expression.displayMode;
+        }
+        if (result.handSignSettings.expression.singleEmotion) {
+          selectedSingleEmotion = result.handSignSettings.expression.singleEmotion;
+        }
+        if (typeof result.handSignSettings.expression.enabled === 'boolean') {
+          expressionAnalysisEnabled = result.handSignSettings.expression.enabled;
+        }
+      }
+    } catch (error) {
+      console.error('[HandSign] Failed to load expression settings:', error);
     }
   }
 
@@ -1134,6 +1736,15 @@
         enableVirtualCameraRandom();
         remainingSeconds = PHOTO_INTERVAL;
         updateTimerDisplay();
+      } else if (activeHandSignType) {
+        // ハンドサインがアクティブな場合は撮影完了とみなして解除
+        console.log('[HandSign] Image changed with active hand sign, clearing selection');
+        showTimerToast(`${getGestureEmoji(activeHandSignType)} 送信完了！通常カメラに戻りました`);
+        activeHandSignType = null;
+        timerElement.querySelectorAll('.rsc-send-btn').forEach(b => b.classList.remove('rsc-active'));
+        disableVirtualCamera();
+        remainingSeconds = PHOTO_INTERVAL;
+        updateTimerDisplay();
       } else if (remainingSeconds <= 10) {
         // 残り10秒以下の時のみリセット（再撮影などの通常サイクル外はスキップ）
         console.log('[HandSign] My image changed within 10s margin, resetting timer');
@@ -1221,21 +1832,81 @@
   }
 
   /**
+   * 全メンバーの画像情報を取得（自分も含む）
+   * 感情係数分析用
+   */
+  function getAllMembersIncludingSelf() {
+    const members = [];
+    // 自分も含めた全てのユーザーコンテナを取得
+    const containers = document.querySelectorAll('.user-picture-container');
+
+    containers.forEach(container => {
+      const nameElement = container.querySelector('.user-name');
+      const imageElement = container.querySelector('.v-image__image');
+
+      // 離席中アイコン（mdi-account-remove）があるかチェック
+      const awayIcon = container.querySelector('.mdi-account-remove');
+      if (awayIcon) {
+        // 離席中のメンバーはスキップ
+        return;
+      }
+
+      if (nameElement && imageElement) {
+        const name = nameElement.textContent.trim();
+        const style = imageElement.getAttribute('style') || '';
+        const match = style.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/);
+
+        if (match && match[1]) {
+          members.push({
+            name: name,
+            imageUrl: match[1],
+            element: container
+          });
+        }
+      }
+    });
+
+    return members;
+  }
+
+  /**
    * 画像を読み込んでCanvas化
+   * CORSエラー時はcrossOriginなしで再試行
    */
   async function loadImageToCanvas(imageUrl) {
+    // まずcrossOriginありで試す
+    try {
+      return await loadImageWithCrossOrigin(imageUrl, true);
+    } catch (e) {
+      console.log('[HandSign] CORS load failed, retrying without crossOrigin');
+      // CORSなしで再試行
+      return await loadImageWithCrossOrigin(imageUrl, false);
+    }
+  }
+
+  function loadImageWithCrossOrigin(imageUrl, useCrossOrigin) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (useCrossOrigin) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          // getImageDataを試みてCORSエラーをここで検出
+          if (useCrossOrigin) {
+            ctx.getImageData(0, 0, 1, 1); // テスト
+          }
+          resolve(canvas);
+        } catch (e) {
+          reject(e);
+        }
       };
-      img.onerror = reject;
+      img.onerror = (e) => reject(new Error('Image load failed'));
       img.src = imageUrl;
     });
   }
@@ -1307,6 +1978,492 @@
       console.error('[HandSign] Detection error for', member.name, error);
       return null;
     }
+  }
+
+  // =============================================
+  // 表情分析機能
+  // =============================================
+
+  // 表情分析が有効かどうか（デフォルトON）
+  let expressionAnalysisEnabled = true;
+
+  // 選択された感情係数（レーダーチャートで表示するもの）
+  let selectedEmotions = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'neutral'];
+
+  // パラメータ表示時に選択する感情（1つのみ）
+  let selectedSingleEmotion = 'happy';
+
+  // 表示形式（'parameter' or 'chart'）
+  let expressionDisplayMode = 'chart';
+
+  // 各メンバーの画像URL別の分析結果キャッシュ（画像URLが変わった時のみ再分析）
+  const expressionResultCache = new Map();
+
+  // 感情の日本語名（サイコパス風）
+  const EMOTION_LABELS = {
+    happy: '幸福係数',
+    sad: '悲哀係数',
+    angry: '憤怒係数',
+    fearful: '恐怖係数',
+    disgusted: '嫌悪係数',
+    surprised: '驚愕係数',
+    neutral: '平静係数'
+  };
+
+  // 感情の絵文字
+  const EMOTION_EMOJI = {
+    happy: '😊',
+    sad: '😢',
+    angry: '😠',
+    fearful: '😨',
+    disgusted: '😒',
+    surprised: '😮',
+    neutral: '😐'
+  };
+
+  /**
+   * 表情分析を実行（オフスクリーンAPI経由 - ハンドサインと同様）
+   */
+  async function analyzeExpression(member) {
+    try {
+      console.log('[HandSign] Analyzing expression for:', member.name, 'URL:', member.imageUrl?.substring(0, 60));
+
+      // 画像をCanvasに読み込み
+      const originalCanvas = await loadImageToCanvas(member.imageUrl);
+
+      // 画像を縮小してメッセージサイズを削減（最大256px）
+      const maxSize = 256;
+      const scale = Math.min(maxSize / originalCanvas.width, maxSize / originalCanvas.height, 1);
+      const width = Math.floor(originalCanvas.width * scale);
+      const height = Math.floor(originalCanvas.height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(originalCanvas, 0, 0, width, height);
+
+      const imageData = ctx.getImageData(0, 0, width, height);
+
+      // オフスクリーンに画像データを送信（ハンドサインと同じ方法）
+      const result = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_EXPRESSION',
+        imageData: {
+          data: Array.from(imageData.data),
+          width: imageData.width,
+          height: imageData.height
+        }
+      });
+
+      console.log('[HandSign] Expression result for', member.name, ':', result);
+      return result;
+    } catch (error) {
+      console.error('[HandSign] Expression analysis error for', member.name, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * メンバー画像の上に感情係数を表示
+   */
+  function showExpressionOverlay(memberElement, expressions, dominant, memberName) {
+    // 既存のオーバーレイを削除
+    const existing = memberElement.querySelector('.rsc-expression-overlay');
+    if (existing) existing.remove();
+
+    // オーバーレイを作成
+    const overlay = document.createElement('div');
+    overlay.className = `rsc-expression-overlay ${expressionDisplayMode === 'chart' ? 'chart-mode' : 'parameter-mode'}`;
+
+    // メンバー名と感情データをデータ属性に保存（モーダル用）
+    overlay.dataset.memberName = memberName || '';
+    overlay.dataset.expressions = expressions ? JSON.stringify(expressions) : '';
+    overlay.dataset.dominant = dominant || '';
+
+    let contentHtml = '';
+
+    if (!expressions) {
+      // 顔が検出されなかった場合
+      contentHtml = `<div class="rsc-expression-notfound">
+        <span class="rsc-expression-notfound-text">Not Found</span>
+      </div>`;
+    } else if (expressionDisplayMode === 'chart') {
+      // チャート形式（7角形レーダーチャート）
+      contentHtml = createRadarChart(expressions, dominant);
+    } else {
+      // パラメータ形式（選択された1つの感情のみ表示）- 「Happy: 97」形式
+      const emotion = selectedSingleEmotion;
+      const score = expressions[emotion] || 0;
+      // 英語ラベル（先頭大文字）
+      const label = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+      contentHtml = `<div class="rsc-expression-single">
+        <span class="rsc-expression-text">${label}: ${Math.round(score)}</span>
+      </div>`;
+    }
+
+    overlay.innerHTML = contentHtml;
+
+    // 画像コンテナを見つける（複数の方法を試す）
+    let imgContainer = memberElement.querySelector('.v-image__image')?.parentElement;
+    if (!imgContainer) {
+      imgContainer = memberElement.querySelector('.v-avatar');
+    }
+    if (!imgContainer) {
+      imgContainer = memberElement.querySelector('.v-image');
+    }
+    if (!imgContainer) {
+      // 最終手段：memberElement自体を使用
+      imgContainer = memberElement;
+    }
+
+    imgContainer.style.position = 'relative';
+    imgContainer.appendChild(overlay);
+
+    // クリックでモーダル表示
+    overlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = overlay.dataset.memberName;
+      const expData = overlay.dataset.expressions;
+      const dom = overlay.dataset.dominant;
+      if (expData) {
+        showExpressionModal(name, JSON.parse(expData), dom);
+      }
+    });
+  }
+
+  /**
+   * 感情詳細モーダルを表示
+   */
+  function showExpressionModal(memberName, expressions, dominant) {
+    // 既存のモーダルを削除
+    const existingModal = document.getElementById('rsc-expression-modal');
+    if (existingModal) existingModal.remove();
+
+    // 感情の絵文字
+    const emotionEmojis = {
+      happy: '😊',
+      sad: '😢',
+      angry: '😠',
+      fearful: '😨',
+      disgusted: '🤢',
+      surprised: '😲',
+      neutral: '😐'
+    };
+
+    // 感情リストを生成
+    const emotions = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'neutral'];
+    const listItems = emotions.map(emotion => {
+      const score = expressions[emotion] || 0;
+      const label = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+      const isDominant = emotion === dominant;
+      return `
+        <div class="rsc-expression-modal-item ${isDominant ? 'dominant' : ''}">
+          <span class="rsc-expression-modal-item-emoji">${emotionEmojis[emotion]}</span>
+          <span class="rsc-expression-modal-item-label">${label}</span>
+          <span class="rsc-expression-modal-item-score">${Math.round(score)}</span>
+        </div>
+      `;
+    }).join('');
+
+    // モーダルを作成
+    const modal = document.createElement('div');
+    modal.id = 'rsc-expression-modal';
+    modal.className = 'rsc-expression-modal rsc-active';
+    modal.innerHTML = `
+      <div class="rsc-expression-modal-overlay"></div>
+      <div class="rsc-expression-modal-content">
+        <button class="rsc-expression-modal-close">&times;</button>
+        <div class="rsc-expression-modal-name">${memberName || 'Unknown'}</div>
+        <div class="rsc-expression-modal-chart">
+          ${createRadarChart(expressions, dominant, true)}
+        </div>
+        <div class="rsc-expression-modal-list">
+          ${listItems}
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 閉じるイベント
+    modal.querySelector('.rsc-expression-modal-overlay').addEventListener('click', () => {
+      modal.remove();
+    });
+    modal.querySelector('.rsc-expression-modal-close').addEventListener('click', () => {
+      modal.remove();
+    });
+  }
+
+  // 感情別の色定義（fillを濃くして塗りつぶし感を強調）
+  const EMOTION_COLORS = {
+    happy: { main: '#ff69b4', fill: 'rgba(255, 105, 180, 0.6)', glow: 'rgba(255, 105, 180, 0.5)' }, // ピンク
+    sad: { main: '#4169e1', fill: 'rgba(65, 105, 225, 0.6)', glow: 'rgba(65, 105, 225, 0.5)' }, // ブルー
+    angry: { main: '#ff4444', fill: 'rgba(255, 68, 68, 0.6)', glow: 'rgba(255, 68, 68, 0.5)' }, // レッド
+    fearful: { main: '#9932cc', fill: 'rgba(153, 50, 204, 0.6)', glow: 'rgba(153, 50, 204, 0.5)' }, // パープル
+    disgusted: { main: '#32cd32', fill: 'rgba(50, 205, 50, 0.6)', glow: 'rgba(50, 205, 50, 0.5)' }, // グリーン
+    surprised: { main: '#ffa500', fill: 'rgba(255, 165, 0, 0.6)', glow: 'rgba(255, 165, 0, 0.5)' }, // オレンジ
+    neutral: { main: '#00ff88', fill: 'rgba(0, 255, 136, 0.6)', glow: 'rgba(0, 255, 136, 0.5)' } // シアン（デフォルト）
+  };
+
+  /**
+   * 7角形レーダーチャートをSVGで作成（数値ラベル付き、感情別カラー）
+   * @param {Object} expressions - 感情スコア
+   * @param {string} dominant - ドミナント感情
+   * @param {boolean} isLarge - 大きいサイズ（モーダル用）
+   */
+  function createRadarChart(expressions, dominant, isLarge = false) {
+    const size = isLarge ? 200 : 50; // 通常50px、モーダルは200px
+    const center = size / 2;
+    // 小さいチャートはラベルなしなので、大きめ(0.45)。大きいチャートはラベル用スペース確保(0.35)
+    const radius = isLarge ? size * 0.35 : size * 0.45; // データ領域
+    const labelRadius = size * 0.45; // ラベル位置
+
+    // ドミナント感情に応じた色を取得
+    const colors = EMOTION_COLORS[dominant] || EMOTION_COLORS.neutral;
+
+    // 7つの感情の順序（12時の位置から時計回り）
+    const emotions = ['happy', 'surprised', 'fearful', 'sad', 'disgusted', 'angry', 'neutral'];
+    const emotionLabels = {
+      happy: 'Happy',
+      surprised: 'Surprised',
+      fearful: 'Fearful',
+      sad: 'Sad',
+      disgusted: 'Disgusted',
+      angry: 'Angry',
+      neutral: 'Neutral'
+    };
+
+    const points = [];
+    const dataPoints = [];
+    const labels = [];
+
+    emotions.forEach((emotion, i) => {
+      const angle = (Math.PI * 2 * i / 7) - Math.PI / 2; // 12時から開始
+      const score = expressions[emotion] || 0;
+      const dataRadius = radius * (score / 100);
+
+      // 外枠の頂点
+      points.push({
+        x: center + radius * Math.cos(angle),
+        y: center + radius * Math.sin(angle)
+      });
+
+      // データ点
+      dataPoints.push({
+        x: center + dataRadius * Math.cos(angle),
+        y: center + dataRadius * Math.sin(angle)
+      });
+
+      // ラベル位置
+      labels.push({
+        x: center + labelRadius * Math.cos(angle),
+        y: center + labelRadius * Math.sin(angle),
+        label: emotionLabels[emotion],
+        score: score
+      });
+    });
+
+    // 外枠の多角形
+    const outerPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ') + ' Z';
+
+    // データの多角形
+    const dataPath = dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ') + ' Z';
+
+    // ラベルSVG要素（大きいサイズのみ表示）
+    const labelElements = isLarge ? labels.map((l, i) => {
+      // テキストアンカーを位置に応じて調整
+      let textAnchor = 'middle';
+      let dx = 0;
+      if (l.x < center - 5) {
+        textAnchor = 'end';
+        dx = -4;
+      } else if (l.x > center + 5) {
+        textAnchor = 'start';
+        dx = 4;
+      }
+
+      // 上下位置の調整（英語ラベルと数値を2行で表示）
+      const dy = l.y < center ? -6 : 6;
+
+      return `
+        <text x="${l.x + dx}" y="${l.y + dy}" text-anchor="${textAnchor}" dominant-baseline="middle"
+              font-size="12" fill="${colors.main}" font-weight="bold" style="text-shadow: 0 0 2px #000, 0 0 4px #000;">
+          ${l.label}
+        </text>
+        <text x="${l.x + dx}" y="${l.y + dy + 14}" text-anchor="${textAnchor}" dominant-baseline="middle"
+              font-size="14" fill="#fff" font-weight="bold" style="text-shadow: 0 0 2px #000, 0 0 4px #000;">
+          ${Math.round(l.score)}
+        </text>
+      `;
+    }).join('') : '';
+
+    const circleRadius = isLarge ? 4 : 1.5;
+    const strokeWidth = isLarge ? 2 : 1;
+
+    return `
+      <svg class="rsc-radar-chart" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="filter: drop-shadow(0 0 4px ${colors.glow});">
+        <path d="${outerPath}" fill="none" stroke="rgba(255, 255, 255, 0.4)" stroke-width="${strokeWidth * 0.5}"/>
+        <path d="${dataPath}" fill="${colors.fill}" stroke="${colors.main}" stroke-width="${strokeWidth}"/>
+        ${dataPoints.map((p, i) => `<circle cx="${p.x}" cy="${p.y}" r="${circleRadius}" fill="${colors.main}"/>`).join('')}
+        ${labelElements}
+      </svg>
+    `;
+  }
+
+  /**
+   * 全メンバーの表情を分析
+   */
+  async function analyzeAllExpressions() {
+    if (!expressionAnalysisEnabled) return;
+
+    // 自分も含めた全メンバーを取得
+    const members = getAllMembersIncludingSelf();
+
+    // 画像URLが変わったメンバーのみ抽出（同じURLは1回のみ分析）
+    const membersToAnalyze = [];
+    const membersWithCache = [];
+
+    // 同じURLを持つメンバーをグループ化
+    const membersByUrl = new Map();
+    for (const member of members) {
+      if (!membersByUrl.has(member.imageUrl)) {
+        membersByUrl.set(member.imageUrl, []);
+      }
+      membersByUrl.get(member.imageUrl).push(member);
+    }
+
+    // 各URLに対して処理
+    for (const [url, urlMembers] of membersByUrl.entries()) {
+      if (expressionResultCache.has(url)) {
+        // キャッシュがあるので再分析不要、全員をキャッシュ済みとして追加
+        const cachedResult = expressionResultCache.get(url);
+        for (const member of urlMembers) {
+          membersWithCache.push({ member, result: cachedResult });
+        }
+      } else {
+        // 新しいURL、最初の1人だけ分析対象に
+        membersToAnalyze.push(urlMembers[0]);
+        // 残りは分析後にキャッシュから取得（pendingUrl付き）
+        for (let i = 1; i < urlMembers.length; i++) {
+          membersWithCache.push({ member: urlMembers[i], result: null, pendingUrl: url });
+        }
+      }
+    }
+
+    // 分析が必要なメンバーのみ処理
+    for (const member of membersToAnalyze) {
+      const result = await analyzeExpression(member);
+      if (result && result.success) {
+        // グローバルキャッシュに保存
+        expressionResultCache.set(member.imageUrl, result);
+
+        // ログに分析結果を表示
+        if (result.expressions) {
+          console.log(`[HandSign] ${member.name}:`, result.expressions, `(dominant: ${result.dominant})`);
+        } else {
+          console.log(`[HandSign] ${member.name}: Not Found (顔が検出されませんでした)`);
+        }
+
+        // メンバーのコンテナ要素に表示（expressionsがnullでも「Not Found」を表示）
+        if (member.element) {
+          showExpressionOverlay(member.element, result.expressions, result.dominant, member.name);
+        }
+      }
+    }
+
+    // キャッシュ済みメンバー（同じURL含む）にオーバーレイを表示
+    for (const { member, result, pendingUrl } of membersWithCache) {
+      // pendingUrlがある場合は分析後のキャッシュから取得
+      const actualResult = result || (pendingUrl ? expressionResultCache.get(pendingUrl) : null);
+
+      if (member.element && actualResult && actualResult.success) {
+        // pendingUrlがある場合は常に更新（同じURLの2人目以降）
+        // それ以外は既にオーバーレイがあればスキップ
+        const existing = member.element.querySelector('.rsc-expression-overlay');
+        if (pendingUrl || !existing) {
+          showExpressionOverlay(member.element, actualResult.expressions, actualResult.dominant, member.name);
+        }
+      }
+    }
+
+    // チーム全体のムードを更新
+    updateTeamMood();
+  }
+
+  /**
+   * チーム全体のムードを計算・表示
+   * 現在表示されているメンバーのみを集計（同じ画像URLは1回のみカウント）
+   */
+  function updateTeamMood() {
+    if (!timerElement) return;
+
+    const moodEmoji = timerElement.querySelector('.rsc-team-mood-emoji');
+    const moodText = timerElement.querySelector('.rsc-team-mood-text');
+    if (!moodEmoji || !moodText) return;
+
+    // 現在表示されているメンバーの画像URLを取得
+    const members = getAllMembersIncludingSelf();
+    const currentUrls = new Set(members.map(m => m.imageUrl).filter(Boolean));
+
+    // 現在のメンバーのみから感情スコアを集計（同じURLは1回のみ）
+    const totals = {
+      happy: 0,
+      sad: 0,
+      angry: 0,
+      fearful: 0,
+      disgusted: 0,
+      surprised: 0,
+      neutral: 0
+    };
+    let count = 0;
+    const processedUrls = new Set();
+
+    for (const url of currentUrls) {
+      // 同じURLは1回のみカウント
+      if (processedUrls.has(url)) continue;
+      processedUrls.add(url);
+
+      const result = expressionResultCache.get(url);
+      if (result && result.success && result.expressions) {
+        for (const emotion of Object.keys(totals)) {
+          totals[emotion] += result.expressions[emotion] || 0;
+        }
+        count++;
+      }
+    }
+
+    if (count === 0) {
+      moodEmoji.textContent = '❓';
+      moodText.textContent = 'No Data';
+      moodText.style.color = '#888';
+      return;
+    }
+
+    // 最も高い感情を取得
+    let dominantEmotion = 'neutral';
+    let maxScore = 0;
+    for (const [emotion, score] of Object.entries(totals)) {
+      if (score > maxScore) {
+        maxScore = score;
+        dominantEmotion = emotion;
+      }
+    }
+
+    // 感情に対応する絵文字とテキスト
+    const emotionDisplay = {
+      happy: { emoji: '😊', text: 'Happy', color: '#ff69b4' },
+      sad: { emoji: '😢', text: 'Sad', color: '#4169e1' },
+      angry: { emoji: '😠', text: 'Angry', color: '#ff4444' },
+      fearful: { emoji: '😨', text: 'Fearful', color: '#9932cc' },
+      disgusted: { emoji: '🤢', text: 'Disgusted', color: '#32cd32' },
+      surprised: { emoji: '😲', text: 'Surprised', color: '#ffa500' },
+      neutral: { emoji: '😐', text: 'Neutral', color: '#00ff88' }
+    };
+
+    const display = emotionDisplay[dominantEmotion];
+    moodEmoji.textContent = display.emoji;
+    moodText.textContent = `${display.text} (${count})`;
+    moodText.style.color = display.color;
   }
 
   /**
@@ -1461,6 +2618,11 @@
         notify(member, gesture);
       }
     }
+
+    // 感情係数分析（全メンバー対象）
+    if (expressionAnalysisEnabled) {
+      analyzeAllExpressions();
+    }
   }
 
   /**
@@ -1498,6 +2660,9 @@
     // 設定を読み込む
     await loadSettings();
 
+    // 感情係数設定を読み込む
+    await loadExpressionSettings();
+
     // プリセット音声をプリロード（カウントダウン音などで使用）
     try {
       const result = await chrome.runtime.sendMessage({ type: 'GET_PRESET_SOUNDS' });
@@ -1525,6 +2690,16 @@
 
     // MediaPipe を初期化（バックグラウンドで）
     initMediaPipe().catch(console.error);
+
+    // 感情係数分析を開始（オフスクリーン経由）
+    if (expressionAnalysisEnabled) {
+      console.log('[HandSign] Expression analysis enabled, starting...');
+      // ボタンの状態を更新
+      const btn = timerElement?.querySelector('.rsc-expression-btn');
+      if (btn) btn.classList.add('rsc-active');
+      // 初回分析を開始
+      setTimeout(() => analyzeAllExpressions(), 2000);
+    }
 
     // 定期スキャン開始
     setInterval(scanMembers, DETECTION_INTERVAL);
