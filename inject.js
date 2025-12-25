@@ -48,6 +48,10 @@
   // カスタム音声のキャッシュ（Blob URL）
   const customSoundCache = {};
 
+  // 再生中の音声を追跡（着信応答時に停止するため）
+  const activeHowls = new Set();
+  const activeAudios = new Set();
+
   /**
    * URLから対象音声IDを取得
    */
@@ -175,6 +179,8 @@
     const OriginalHowl = window.Howl;
 
     window.Howl = function(options) {
+      let interceptedSoundId = null;
+
       if (options && options.src) {
         const srcArray = Array.isArray(options.src) ? options.src : [options.src];
         const soundId = getSoundIdFromUrl(srcArray[0]);
@@ -183,6 +189,7 @@
           const customUrl = getCustomSoundUrl(soundId);
           if (customUrl) {
             console.log(`[RemoworkSoundChanger] Howl() intercepted for ${soundId}`);
+            interceptedSoundId = soundId;
             // カスタムURLに置き換え
             options = Object.assign({}, options, {
               src: [customUrl],
@@ -192,7 +199,36 @@
         }
       }
 
-      return new OriginalHowl(options);
+      const howl = new OriginalHowl(options);
+
+      // カスタム音声の場合、再生開始・停止を追跡
+      if (interceptedSoundId) {
+        const originalPlay = howl.play.bind(howl);
+        const originalStop = howl.stop.bind(howl);
+        const originalPause = howl.pause.bind(howl);
+
+        howl.play = function(...args) {
+          activeHowls.add(howl);
+          return originalPlay(...args);
+        };
+
+        howl.stop = function(...args) {
+          activeHowls.delete(howl);
+          return originalStop(...args);
+        };
+
+        howl.pause = function(...args) {
+          activeHowls.delete(howl);
+          return originalPause(...args);
+        };
+
+        // 再生終了時にも削除
+        howl.on('end', () => {
+          activeHowls.delete(howl);
+        });
+      }
+
+      return howl;
     };
 
     // プロトタイプとスタティックプロパティを継承
@@ -311,6 +347,74 @@
       console.log('[RemoworkSoundChanger] Config reloaded - changes will apply to new audio requests');
     }
   });
+
+  /**
+   * 全てのカスタム音声を停止
+   */
+  function stopAllCustomSounds() {
+    // Howlオブジェクトを停止
+    activeHowls.forEach(howl => {
+      try {
+        howl.stop();
+      } catch (e) {
+        console.warn('[RemoworkSoundChanger] Failed to stop Howl:', e);
+      }
+    });
+    activeHowls.clear();
+
+    // Audioオブジェクトを停止
+    activeAudios.forEach(audio => {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (e) {
+        console.warn('[RemoworkSoundChanger] Failed to stop Audio:', e);
+      }
+    });
+    activeAudios.clear();
+
+    console.log('[RemoworkSoundChanger] All custom sounds stopped');
+  }
+
+  // グローバルに公開（外部から呼び出し可能に）
+  window.__remoworkStopAllSounds = stopAllCustomSounds;
+
+  /**
+   * 通話関連ボタンのクリックを監視して音声を停止
+   */
+  function setupCallButtonWatcher() {
+    document.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!target) return;
+
+      // ボタンまたはその親要素を検索
+      const button = target.closest('button, [role="button"], .btn, [class*="call"], [class*="answer"], [class*="accept"]');
+      if (!button) return;
+
+      // 通話関連のボタンかどうかをクラス名やテキストで判断
+      const buttonText = button.textContent?.toLowerCase() || '';
+      const buttonClass = button.className?.toLowerCase() || '';
+
+      const isCallButton =
+        buttonText.includes('応答') ||
+        buttonText.includes('通話') ||
+        buttonText.includes('answer') ||
+        buttonText.includes('accept') ||
+        buttonClass.includes('call') ||
+        buttonClass.includes('answer') ||
+        buttonClass.includes('accept') ||
+        buttonClass.includes('phone');
+
+      if (isCallButton) {
+        console.log('[RemoworkSoundChanger] Call button clicked, stopping all sounds');
+        stopAllCustomSounds();
+      }
+    }, true); // キャプチャフェーズで処理
+
+    console.log('[RemoworkSoundChanger] Call button watcher initialized');
+  }
+
+  setupCallButtonWatcher();
 
   console.log('[RemoworkSoundChanger] Ready - Intercepting Howler.js, Audio, XHR, and fetch');
 

@@ -951,13 +951,16 @@
   function updateTimerDisplay() {
     if (!timerElement) return;
 
-    const minutes = Math.floor(remainingSeconds / 60);
-    const seconds = remainingSeconds % 60;
-    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
     const valueElement = timerElement.querySelector('.rsc-timer-value');
     if (valueElement) {
-      valueElement.textContent = timeStr;
+      if (remainingSeconds <= 0) {
+        // 0秒以下は「撮影待ち」と表示
+        valueElement.textContent = '撮影待ち';
+      } else {
+        const minutes = Math.floor(remainingSeconds / 60);
+        const seconds = remainingSeconds % 60;
+        valueElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      }
     }
 
     // 残り30秒以下で色を変える
@@ -1053,14 +1056,12 @@
    * タイマーを1秒減らす
    */
   function tickTimer() {
-    if (remainingSeconds > 0) {
-      remainingSeconds--;
-      updateTimerDisplay();
+    remainingSeconds--;
+    updateTimerDisplay();
 
-      // 5秒以下でカウントダウン音を再生（Remowork離席中は不要）
-      if (remainingSeconds <= 5 && remainingSeconds > 0 && !isRemoworkAway()) {
-        playCountdownSound();
-      }
+    // 5秒以下でカウントダウン音を再生（Remowork離席中は不要）
+    if (remainingSeconds <= 5 && remainingSeconds > 0 && !isRemoworkAway()) {
+      playCountdownSound();
     }
   }
 

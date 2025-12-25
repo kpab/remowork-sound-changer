@@ -566,8 +566,13 @@ async function handleSoundListClick(e) {
 function stopPlayback() {
   if (!previewAudio) return;
 
+  // イベントハンドラをクリア（前の音声の終了イベントが発火しないように）
+  previewAudio.onended = null;
+  previewAudio.onerror = null;
+
   previewAudio.pause();
   previewAudio.currentTime = 0;
+  previewAudio.src = ''; // 現在のソースをクリア
 
   if (currentPlayingId) {
     const prevButton = document.querySelector(`.sound-item[data-id="${currentPlayingId}"] .btn-play`);
@@ -616,7 +621,7 @@ async function handlePlayClick(soundId, button, item) {
 
   try {
     if (modeValue === 'original') {
-      showToast('オリジナル音声のプレビューは対象サイトでのみ可能です');
+      showToast('オリジナル音声はRemoworkサイトで再生されます', 'info');
       return;
     }
 
