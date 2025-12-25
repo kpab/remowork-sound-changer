@@ -1107,17 +1107,14 @@
 
   /**
    * タイマーの表示/非表示を切り替え
+   * 注: settings.enabled はハンドサイン検出のオン/オフなので、
+   *     ウィジェット自体は常に表示する
    */
   function updateTimerVisibility() {
     if (!timerElement) return;
 
-    // settings.enabled が明示的に false の場合のみ非表示
-    // undefined や存在しない場合は表示する（デフォルト有効）
-    if (settings.enabled !== false) {
-      timerElement.classList.remove('rsc-timer-hidden');
-    } else {
-      timerElement.classList.add('rsc-timer-hidden');
-    }
+    // ウィジェットは常に表示（ハンドサイン検出のオン/オフとは無関係）
+    timerElement.classList.remove('rsc-timer-hidden');
   }
 
   /**
