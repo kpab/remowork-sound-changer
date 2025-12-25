@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Remowork Sound Changer",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Remoworkの着信音・通知音をカスタマイズ",
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

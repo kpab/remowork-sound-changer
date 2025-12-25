@@ -3248,9 +3248,12 @@
       // ストリームを保持するリスト
       const streamsToRelease = [];
 
-      // マイク
+      // マイク（選択されたデバイスを使用）
       try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioConstraints = selectedMicDeviceId
+          ? { deviceId: { exact: selectedMicDeviceId } }
+          : true;
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         streamsToRelease.push(micStream);
         const micSource = audioContext.createMediaStreamSource(micStream);
         micSource.connect(audioDestination);
