@@ -1972,7 +1972,9 @@
         border-radius: 12px;
         overflow: hidden;
         margin-bottom: 12px;
+        min-height: 240px;
         height: 240px;
+        flex-shrink: 0;
         display: flex;
         align-items: center;
         justify-content: center;
