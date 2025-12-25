@@ -87,14 +87,174 @@ async function initDetector() {
 }
 
 /**
+ * 2点間の距離を計算
+ */
+function distance(p1, p2) {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+}
+
+/**
  * 手のランドマークからジェスチャーを検出
- * 手が検出されたら「お話しOK」を返す
+ *
+ * MediaPipe Hand Landmarks:
+ * 0: WRIST
+ * 1-4: THUMB (CMC, MCP, IP, TIP)
+ * 5-8: INDEX (MCP, PIP, DIP, TIP)
+ * 9-12: MIDDLE (MCP, PIP, DIP, TIP)
+ * 13-16: RING (MCP, PIP, DIP, TIP)
+ * 17-20: PINKY (MCP, PIP, DIP, TIP)
+ *
+ * 検出対象ジェスチャー（片手）:
+ * 1. Thumbs Up 👍: 親指が上向き + 4本指が閉じている
+ * 2. Peace ✌️: 人差し指と中指が伸びている + 他が閉じている
+ * 3. Open Palm 👋: 複数のパターンで検出
+ *    - パターンA: 4本指が伸びている（指先がPIPより上）
+ *    - パターンB: 指が揃っている（隣接する指先の距離が近い）
+ *    - パターンC: 3本以上の指が伸びている
+ *
+ * 両手ジェスチャー（detectHeadInHands関数で検出）:
+ * - Head in Hands 😢: 両手が顔の両側にある（頭を抱えるポーズ）
  */
 function detectGesture(landmarks) {
   if (!landmarks || landmarks.length === 0) return null;
 
-  // 手が検出された = お話しOK
-  return { type: 'talk_ok', emoji: '🙋', message: 'お話しOKです' };
+  // 各指のランドマーク
+  const wrist = landmarks[0];
+
+  // 親指
+  const thumbTip = landmarks[4];
+  const thumbIP = landmarks[3];
+  const thumbMCP = landmarks[2];
+  const thumbExtended = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbIP.x - wrist.x);
+  const thumbUp = thumbTip.y < thumbMCP.y - 0.05;
+
+  // 人差し指
+  const indexTip = landmarks[8];
+  const indexPIP = landmarks[6];
+  const indexMCP = landmarks[5];
+  const indexExtended = indexTip.y < indexPIP.y - 0.02;
+
+  // 中指
+  const middleTip = landmarks[12];
+  const middlePIP = landmarks[10];
+  const middleMCP = landmarks[9];
+  const middleExtended = middleTip.y < middlePIP.y - 0.02;
+
+  // 薬指
+  const ringTip = landmarks[16];
+  const ringPIP = landmarks[14];
+  const ringMCP = landmarks[13];
+  const ringExtended = ringTip.y < ringPIP.y - 0.02;
+
+  // 小指
+  const pinkyTip = landmarks[20];
+  const pinkyPIP = landmarks[18];
+  const pinkyMCP = landmarks[17];
+  const pinkyExtended = pinkyTip.y < pinkyPIP.y - 0.02;
+
+  // 4本指の状態
+  const fourFingersClosed = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
+  const fourFingersOpen = indexExtended && middleExtended && ringExtended && pinkyExtended;
+
+  // 親指が下を向いているか（y座標がMCPより下）
+  const thumbDown = thumbTip.y > thumbMCP.y + 0.05;
+
+  // === Thumbs Up 検出 ===
+  // 親指が立っていて、他の4本指が閉じている
+  if (thumbUp && thumbExtended && fourFingersClosed) {
+    console.log('[Offscreen] Detected: Thumbs Up');
+    return { type: 'thumbsup', emoji: '👍', message: 'いつでもお話しいいですよ！！' };
+  }
+
+  // === Peace 検出 ===
+  // 人差し指と中指が伸びていて、薬指と小指が閉じている
+  const peaceSign = indexExtended && middleExtended && !ringExtended && !pinkyExtended;
+  if (peaceSign) {
+    console.log('[Offscreen] Detected: Peace');
+    return { type: 'peace', emoji: '✌️', message: '調子いいから聞いて聞いて！！！' };
+  }
+
+  // === Open Palm 検出（複数パターン） ===
+
+  // パターンA: 4本指が伸びている（従来の検出）
+  if (fourFingersOpen) {
+    console.log('[Offscreen] Detected: Open Palm (Pattern A: fingers extended)');
+    return { type: 'wave', emoji: '👋', message: 'お話ししたいです！！！' };
+  }
+
+  // パターンB: 指が揃っている（閉じた手のひら）
+  // 隣接する指先の距離が近い = 指が揃っている
+  const indexMiddleDist = distance(indexTip, middleTip);
+  const middleRingDist = distance(middleTip, ringTip);
+  const ringPinkyDist = distance(ringTip, pinkyTip);
+  const avgFingerTipDist = (indexMiddleDist + middleRingDist + ringPinkyDist) / 3;
+
+  // 手のひらの幅（人差し指MCPから小指MCPまで）
+  const palmWidth = distance(indexMCP, pinkyMCP);
+
+  // 指先が揃っている（隣接指先の平均距離が手のひら幅の25%以下）
+  const fingersAligned = avgFingerTipDist < palmWidth * 0.25;
+
+  // 指がある程度伸びている（MCPから指先までの距離）
+  const indexLength = distance(indexMCP, indexTip);
+  const middleLength = distance(middleMCP, middleTip);
+  const ringLength = distance(ringMCP, ringTip);
+  const pinkyLength = distance(pinkyMCP, pinkyTip);
+  const avgFingerLength = (indexLength + middleLength + ringLength + pinkyLength) / 4;
+
+  // 指の長さが手のひら幅の40%以上ならある程度伸びている
+  const fingersLongEnough = avgFingerLength > palmWidth * 0.4;
+
+  // パターンB: 指が揃っていて、ある程度伸びている
+  if (fingersAligned && fingersLongEnough) {
+    console.log('[Offscreen] Detected: Open Palm (Pattern B: fingers aligned)');
+    return { type: 'wave', emoji: '👋', message: 'お話ししたいです！！！' };
+  }
+
+  // パターンC: 手のひらが正面を向いている（少なくとも3本の指が伸びている）
+  const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
+  if (extendedCount >= 3 && fingersLongEnough) {
+    console.log('[Offscreen] Detected: Open Palm (Pattern C: 3+ fingers extended)');
+    return { type: 'wave', emoji: '👋', message: 'お話ししたいです！！！' };
+  }
+
+  // それ以外のジェスチャーは無視
+  console.log('[Offscreen] No recognized gesture (extended:', extendedCount, 'aligned:', fingersAligned,
+    'longEnough:', fingersLongEnough, 'thumbUp:', thumbUp, ')');
+  return null;
+}
+
+/**
+ * 両手で「頭を抱える」ジェスチャーを検出
+ * 条件:
+ * - 両手が検出されている
+ * - 両手の手首が画像の上部にある（顔の近く）
+ * - 両手の手首が離れている（頭の両側）
+ */
+function detectHeadInHands(landmarks1, landmarks2) {
+  const wrist1 = landmarks1[0];
+  const wrist2 = landmarks2[0];
+
+  // 両手首のY座標が画像上部にある（0.0〜0.5の範囲、上が0）
+  const bothHandsHigh = wrist1.y < 0.5 && wrist2.y < 0.5;
+
+  // 両手首のX座標が離れている（左右に広がっている）
+  const handsSpread = Math.abs(wrist1.x - wrist2.x) > 0.3;
+
+  // 両手首が画像の両端にある（左手は左側、右手は右側）
+  const leftHand = wrist1.x < 0.5 ? landmarks1 : landmarks2;
+  const rightHand = wrist1.x < 0.5 ? landmarks2 : landmarks1;
+  const properPosition = leftHand[0].x < 0.5 && rightHand[0].x > 0.5;
+
+  // 指の状態をチェック（開いている or 閉じている、どちらでもOK）
+  // 頭を抱える時は指が開いていることが多い
+
+  if (bothHandsHigh && handsSpread && properPosition) {
+    console.log('[Offscreen] Detected: Head in Hands (両手で頭を抱える)');
+    return { type: 'head_in_hands', emoji: '😢', message: '調子悪いので慰めて。。。；；' };
+  }
+
+  return null;
 }
 
 /**
@@ -126,7 +286,18 @@ async function detectHandSign(imageData) {
       return { success: true, gesture: null };
     }
 
-    // 最初に検出された手のランドマーク
+    // 両手が検出された場合、「頭を抱える」ジェスチャーをチェック
+    if (results.landmarks.length >= 2) {
+      const headInHandsGesture = detectHeadInHands(
+        results.landmarks[0],
+        results.landmarks[1]
+      );
+      if (headInHandsGesture) {
+        return { success: true, gesture: headInHandsGesture };
+      }
+    }
+
+    // 片手のジェスチャーをチェック
     const landmarks = results.landmarks[0];
     const gesture = detectGesture(landmarks);
 

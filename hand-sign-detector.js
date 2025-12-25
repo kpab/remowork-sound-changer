@@ -10,6 +10,41 @@
   const NOTIFICATION_COOLDOWN = 300000; // 同じ人からの通知は5分間抑制
   const PHOTO_INTERVAL = 297; // 写真撮影間隔（4分57秒）- Remoworkより少し早めにカウントダウン終了
 
+  // ジェスチャータイプの設定
+  const GESTURE_CONFIG = {
+    wave: { emoji: '👋', guide: '手を振って', negative: false },
+    thumbsup: { emoji: '👍', guide: 'サムズアップで', negative: false },
+    peace: { emoji: '✌️', guide: 'ピースして', negative: false },
+    head_in_hands: { emoji: '😢', guide: '頭を抱えて', negative: true }
+  };
+
+  // ジェスチャータイプ一覧
+  const GESTURE_TYPES = Object.keys(GESTURE_CONFIG);
+
+  // ポジティブなジェスチャーのみ（留守モードで使用）
+  const POSITIVE_GESTURE_TYPES = GESTURE_TYPES.filter(type => !GESTURE_CONFIG[type].negative);
+
+  /**
+   * ジェスチャータイプから絵文字を取得
+   */
+  function getGestureEmoji(type) {
+    return GESTURE_CONFIG[type]?.emoji || '👋';
+  }
+
+  /**
+   * ジェスチャータイプから撮影ガイドを取得
+   */
+  function getGestureGuide(type) {
+    return GESTURE_CONFIG[type]?.guide || '手を振って';
+  }
+
+  /**
+   * ジェスチャータイプがネガティブかどうか
+   */
+  function isNegativeGesture(type) {
+    return GESTURE_CONFIG[type]?.negative || false;
+  }
+
   // 検出済みの画像URLを記録（重複検出防止）
   const processedImages = new Map();
   // 通知クールダウン管理
@@ -166,6 +201,8 @@
         <div class="rsc-timer-row">
           <button class="rsc-send-btn" data-type="wave" title="👋を次回送信">👋</button>
           <button class="rsc-send-btn" data-type="thumbsup" title="👍を次回送信">👍</button>
+          <button class="rsc-send-btn" data-type="peace" title="✌️を次回送信">✌️</button>
+          <button class="rsc-send-btn" data-type="head_in_hands" title="😢を次回送信">😢</button>
           <button class="rsc-away-btn" title="留守モード（30分間自動送信）">🏃 留守</button>
           <div class="rsc-timer-divider"></div>
           <button class="rsc-record-btn" title="録音">🎙️ 録音</button>
@@ -649,12 +686,11 @@
       stopAwayMode();
       showTimerToast('留守モードを解除しました');
     } else {
-      // 画像があるかチェック
+      // 画像があるかチェック（ポジティブなジェスチャーのみ）
       const images = await getVirtualCameraImages();
-      const hasWave = images?.wave?.length > 0;
-      const hasThumbsup = images?.thumbsup?.length > 0;
+      const hasPositiveImages = POSITIVE_GESTURE_TYPES.some(type => images?.[type]?.length > 0);
 
-      if (!hasWave && !hasThumbsup) {
+      if (!hasPositiveImages) {
         showTimerToast('画像が未登録です。事前撮影してください。');
         return;
       }
@@ -694,7 +730,7 @@
     timerElement.querySelectorAll('.rsc-send-btn').forEach(b => b.classList.remove('rsc-active'));
     activeHandSignType = null;
 
-    // 仮想カメラを有効化（waveとthumbsupからランダム）
+    // 仮想カメラを有効化（ポジティブなジェスチャーからランダム）
     enableVirtualCameraRandom();
 
     // 指定時間後に自動解除
@@ -750,13 +786,19 @@
   }
 
   /**
-   * ランダムな画像タイプで仮想カメラを有効化
+   * ランダムな画像タイプで仮想カメラを有効化（留守モード用）
+   * ネガティブなジェスチャーは除外
    */
   async function enableVirtualCameraRandom() {
     const images = await getVirtualCameraImages();
     const types = [];
-    if (images?.wave?.length > 0) types.push('wave');
-    if (images?.thumbsup?.length > 0) types.push('thumbsup');
+
+    // ポジティブなジェスチャーのみから選択
+    for (const type of POSITIVE_GESTURE_TYPES) {
+      if (images?.[type]?.length > 0) {
+        types.push(type);
+      }
+    }
 
     if (types.length === 0) return;
 
@@ -866,18 +908,34 @@
       activeHandSignType = type;
       btn.classList.add('rsc-active');
       enableVirtualCamera(type);
-      const emoji = type === 'wave' ? '👋' : '👍';
-      showTimerToast(`${emoji} 次の撮影でランダム送信（${imageArray.length}枚）`);
+      showTimerToast(`${getGestureEmoji(type)} 次の撮影でランダム送信（${imageArray.length}枚）`);
     }
   }
 
   /**
    * 仮想カメラ画像をストレージから取得
+   * 旧形式のキー名（thumbs_up）から新形式（thumbsup）へのマイグレーションを含む
    */
   async function getVirtualCameraImages() {
     return new Promise(resolve => {
-      chrome.storage.local.get(['virtualCameraImages'], result => {
-        resolve(result.virtualCameraImages || {});
+      chrome.storage.local.get(['virtualCameraImages'], async result => {
+        const images = result.virtualCameraImages || {};
+
+        // 旧キー名から新キー名へのマイグレーション（thumbs_up → thumbsup）
+        let needsSave = false;
+        if (images.thumbs_up && !images.thumbsup) {
+          images.thumbsup = images.thumbs_up;
+          delete images.thumbs_up;
+          needsSave = true;
+        }
+
+        // マイグレーションが必要な場合は保存
+        if (needsSave) {
+          await chrome.storage.local.set({ virtualCameraImages: images });
+          console.log('[HandSign] Migrated image keys: thumbs_up -> thumbsup');
+        }
+
+        resolve(images);
       });
     });
   }
@@ -999,8 +1057,7 @@
 
     // ハンドサイン送信後は自動で通常カメラに戻す
     if (activeHandSignType) {
-      const emoji = activeHandSignType === 'wave' ? '👋' : '👍';
-      showTimerToast(`${emoji} 送信完了！通常カメラに戻りました`);
+      showTimerToast(`${getGestureEmoji(activeHandSignType)} 送信完了！通常カメラに戻りました`);
       activeHandSignType = null;
       timerElement.querySelectorAll('.rsc-send-btn').forEach(b => b.classList.remove('rsc-active'));
       disableVirtualCamera();
@@ -1071,8 +1128,14 @@
   function checkMyImageChange() {
     const currentUrl = getMyImageUrl();
     if (currentUrl && lastMyImageUrl && currentUrl !== lastMyImageUrl) {
-      // 残り10秒以下の時のみリセット（再撮影などの通常サイクル外はスキップ）
-      if (remainingSeconds <= 10) {
+      // 留守モード中は常に次の画像をランダムに選択
+      if (isAwayMode) {
+        console.log('[HandSign] Away mode: image changed, selecting random image for next capture');
+        enableVirtualCameraRandom();
+        remainingSeconds = PHOTO_INTERVAL;
+        updateTimerDisplay();
+      } else if (remainingSeconds <= 10) {
+        // 残り10秒以下の時のみリセット（再撮影などの通常サイクル外はスキップ）
         console.log('[HandSign] My image changed within 10s margin, resetting timer');
         resetTimer();
       }
@@ -1122,6 +1185,7 @@
 
   /**
    * オンラインメンバーの画像情報を取得
+   * 離席中のメンバーは除外する
    */
   function getOnlineMembers() {
     const members = [];
@@ -1130,6 +1194,13 @@
     containers.forEach(container => {
       const nameElement = container.querySelector('.user-name');
       const imageElement = container.querySelector('.v-image__image');
+
+      // 離席中アイコン（mdi-account-remove）があるかチェック
+      const awayIcon = container.querySelector('.mdi-account-remove');
+      if (awayIcon) {
+        // 離席中のメンバーはスキップ
+        return;
+      }
 
       if (nameElement && imageElement) {
         const name = nameElement.textContent.trim();
@@ -1363,6 +1434,11 @@
    */
   async function scanMembers() {
     if (!settings.enabled) return;
+
+    // 自分が離席中の場合は検出をスキップ（離席中の画像で誤検出を防ぐ）
+    if (isRemoworkAway()) {
+      return;
+    }
 
     const members = getOnlineMembers();
 
@@ -1609,28 +1685,46 @@
             <canvas id="rsc-camera-canvas" style="display:none;"></canvas>
           </div>
           <div class="rsc-camera-actions">
-            <button class="rsc-camera-btn rsc-capture-wave">👋 手を振る</button>
-            <button class="rsc-camera-btn rsc-capture-thumbsup">👍 サムズアップ</button>
+            <button class="rsc-camera-btn rsc-capture-wave">👋 手を振って</button>
+            <button class="rsc-camera-btn rsc-capture-thumbsup">👍 サムズアップで</button>
+            <button class="rsc-camera-btn rsc-capture-peace">✌️ ピースして</button>
+            <button class="rsc-camera-btn rsc-capture-head_in_hands">😢 頭を抱えて</button>
           </div>
           <div class="rsc-camera-status"></div>
           <div class="rsc-image-counts">
             <span class="rsc-count-wave">👋 0枚</span>
             <span class="rsc-count-thumbsup">👍 0枚</span>
+            <span class="rsc-count-peace">✌️ 0枚</span>
+            <span class="rsc-count-head_in_hands">😢 0枚</span>
           </div>
           <div class="rsc-saved-images">
             <div class="rsc-saved-images-section" data-type="wave">
               <div class="rsc-saved-images-header">
-                <span class="rsc-saved-images-title">👋 手を振る</span>
+                <span class="rsc-saved-images-title">👋 手を振って</span>
                 <button class="rsc-delete-all-btn" data-type="wave">全削除</button>
               </div>
               <div class="rsc-saved-images-grid rsc-wave-grid"></div>
             </div>
             <div class="rsc-saved-images-section" data-type="thumbsup">
               <div class="rsc-saved-images-header">
-                <span class="rsc-saved-images-title">👍 サムズアップ</span>
+                <span class="rsc-saved-images-title">👍 サムズアップで</span>
                 <button class="rsc-delete-all-btn" data-type="thumbsup">全削除</button>
               </div>
               <div class="rsc-saved-images-grid rsc-thumbsup-grid"></div>
+            </div>
+            <div class="rsc-saved-images-section" data-type="peace">
+              <div class="rsc-saved-images-header">
+                <span class="rsc-saved-images-title">✌️ ピースして</span>
+                <button class="rsc-delete-all-btn" data-type="peace">全削除</button>
+              </div>
+              <div class="rsc-saved-images-grid rsc-peace-grid"></div>
+            </div>
+            <div class="rsc-saved-images-section" data-type="head_in_hands">
+              <div class="rsc-saved-images-header">
+                <span class="rsc-saved-images-title">😢 頭を抱えて</span>
+                <button class="rsc-delete-all-btn" data-type="head_in_hands">全削除</button>
+              </div>
+              <div class="rsc-saved-images-grid rsc-head_in_hands-grid"></div>
             </div>
           </div>
         </div>
@@ -1911,6 +2005,14 @@
       }
       .rsc-capture-thumbsup {
         background: linear-gradient(135deg, #f093fb, #f5576c);
+        color: #fff;
+      }
+      .rsc-capture-peace {
+        background: linear-gradient(135deg, #43e97b, #38f9d7);
+        color: #fff;
+      }
+      .rsc-capture-head_in_hands {
+        background: linear-gradient(135deg, #fa709a, #fee140);
         color: #fff;
       }
       .rsc-camera-btn:hover {
@@ -2587,6 +2689,8 @@
     toolsModal.querySelector('.rsc-modal-close').addEventListener('click', closeToolsModal);
     toolsModal.querySelector('.rsc-capture-wave').addEventListener('click', () => captureImage('wave'));
     toolsModal.querySelector('.rsc-capture-thumbsup').addEventListener('click', () => captureImage('thumbsup'));
+    toolsModal.querySelector('.rsc-capture-peace').addEventListener('click', () => captureImage('peace'));
+    toolsModal.querySelector('.rsc-capture-head_in_hands').addEventListener('click', () => captureImage('head_in_hands'));
 
     // 録音ボタン
     toolsModal.querySelector('.rsc-recorder-btn-record').addEventListener('click', startRecording);
@@ -2729,7 +2833,7 @@
       });
       video.srcObject = cameraStream;
       buttons.forEach(btn => btn.disabled = false);
-      status.textContent = 'ポーズをとって撮影ボタンをクリック';
+      status.textContent = 'ポーズをとって撮影ボタンをクリック！';
       updateImageCounts();
     } catch (error) {
       console.error('[HandSign] Camera error:', error);
@@ -2756,17 +2860,17 @@
       return;
     }
     const result = await chrome.storage.local.get('virtualCameraImages');
-    const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
+    const images = result.virtualCameraImages || {};
 
-    const waveCount = toolsModal.querySelector('.rsc-count-wave');
-    const thumbsupCount = toolsModal.querySelector('.rsc-count-thumbsup');
-
-    if (waveCount) waveCount.textContent = `👋 ${images.wave?.length || 0}枚`;
-    if (thumbsupCount) thumbsupCount.textContent = `👍 ${images.thumbsup?.length || 0}枚`;
-
-    // 保存済み画像一覧を更新
-    updateSavedImagesGrid('wave', images.wave || []);
-    updateSavedImagesGrid('thumbsup', images.thumbsup || []);
+    // 全てのジェスチャータイプの枚数を更新
+    for (const type of GESTURE_TYPES) {
+      const countEl = toolsModal.querySelector(`.rsc-count-${type}`);
+      if (countEl) {
+        countEl.textContent = `${getGestureEmoji(type)} ${images[type]?.length || 0}枚`;
+      }
+      // 保存済み画像一覧を更新
+      updateSavedImagesGrid(type, images[type] || []);
+    }
   }
 
   /**
@@ -2810,7 +2914,7 @@
       return;
     }
     const result = await chrome.storage.local.get('virtualCameraImages');
-    const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
+    const images = result.virtualCameraImages || {};
 
     if (!images[type] || index >= images[type].length) return;
 
@@ -2847,13 +2951,12 @@
       return;
     }
     const result = await chrome.storage.local.get('virtualCameraImages');
-    const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
+    const images = result.virtualCameraImages || {};
 
     const count = images[type]?.length || 0;
     if (count === 0) return;
 
-    const emoji = type === 'wave' ? '👋' : '👍';
-    if (!confirm(`${emoji} の画像を全て削除しますか？（${count}枚）`)) return;
+    if (!confirm(`${getGestureEmoji(type)} の画像を全て削除しますか？（${count}枚）`)) return;
 
     // 全削除
     images[type] = [];
@@ -2871,7 +2974,7 @@
 
     const status = toolsModal.querySelector('.rsc-camera-status');
     if (status) {
-      status.textContent = `${emoji} の画像を全て削除しました`;
+      status.textContent = `${getGestureEmoji(type)} の画像を全て削除しました`;
       status.className = 'rsc-camera-status';
     }
   }
@@ -3108,7 +3211,14 @@
       }
 
       const result = await chrome.storage.local.get('virtualCameraImages');
-      const images = result.virtualCameraImages || { wave: [], thumbsup: [] };
+      const images = result.virtualCameraImages || {};
+
+      // 全ジェスチャータイプの配列を初期化
+      for (const gestureType of GESTURE_TYPES) {
+        if (!images[gestureType]) {
+          images[gestureType] = [];
+        }
+      }
 
       if (images[type].length >= 12) {
         status.textContent = '登録上限（12枚）に達しています';
@@ -3119,7 +3229,7 @@
       images[type].push(imageData);
       await chrome.storage.local.set({ virtualCameraImages: images });
 
-      status.textContent = `${type === 'wave' ? '👋' : '👍'} 保存しました（${images[type].length}/12枚）`;
+      status.textContent = `${getGestureEmoji(type)} 保存しました（${images[type].length}/12枚）`;
       status.className = 'rsc-camera-status rsc-success';
 
       // 枚数を更新

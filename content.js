@@ -109,7 +109,7 @@
    * デフォルト画像を読み込んでvirtual-camera.jsに送信
    */
   async function loadDefaultImages() {
-    const defaultImageTypes = ['wave', 'thumbsup'];
+    const defaultImageTypes = ['wave', 'thumbs_up', 'peace', 'head_in_hands'];
     const defaultImages = {};
 
     for (const type of defaultImageTypes) {

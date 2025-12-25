@@ -18,22 +18,33 @@
   let virtualStream = null;
   let originalGetUserMedia = null;
 
+  // ジェスチャータイプ一覧
+  const GESTURE_TYPES = ['wave', 'thumbsup', 'peace', 'head_in_hands'];
+
   // 登録済み画像（ストレージから読み込み）- 配列形式
   let registeredImages = {
-    wave: [],      // 👋 (最大12枚)
-    thumbsup: []   // 👍 (最大12枚)
+    wave: [],           // 👋 (最大12枚)
+    thumbsup: [],       // 👍 (最大12枚)
+    peace: [],          // ✌️ (最大12枚)
+    head_in_hands: []   // 😢 (最大12枚)
   };
 
   // デフォルト画像（拡張機能のリソース）
   let defaultImages = {
     wave: null,
-    thumbsup: null
+    thumbsup: null,
+    peace: null,
+    head_in_hands: null
   };
 
   // 描画用interval ID（メモリリーク防止用）
   let currentDrawInterval = null;
 
   console.log('[VirtualCamera] Initializing...');
+
+  // 現在描画中の画像（リアルタイム更新用）
+  let currentDrawingImage = null;
+  let lastDrawnImageSrc = null;
 
   /**
    * Canvas から MediaStream を生成
@@ -46,19 +57,22 @@
     virtualCanvas.height = height;
 
     const ctx = virtualCanvas.getContext('2d');
-    const img = new Image();
 
-    img.onload = () => {
+    // 初期画像を設定
+    currentDrawingImage = new Image();
+    lastDrawnImageSrc = imageData;
+    currentDrawingImage.src = imageData;
+
+    currentDrawingImage.onload = () => {
       // 画像をキャンバスに描画（アスペクト比を維持してセンタリング）
-      const scale = Math.min(width / img.width, height / img.height);
-      const x = (width - img.width * scale) / 2;
-      const y = (height - img.height * scale) / 2;
+      const scale = Math.min(width / currentDrawingImage.width, height / currentDrawingImage.height);
+      const x = (width - currentDrawingImage.width * scale) / 2;
+      const y = (height - currentDrawingImage.height * scale) / 2;
 
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+      ctx.drawImage(currentDrawingImage, x, y, currentDrawingImage.width * scale, currentDrawingImage.height * scale);
     };
-    img.src = imageData;
 
     // 既存のintervalをクリア（メモリリーク防止）
     if (currentDrawInterval) {
@@ -66,20 +80,29 @@
       currentDrawInterval = null;
     }
 
-    // 定期的に再描画（静止画でもストリームを維持）
+    // 定期的に再描画（静止画でもストリームを維持 + 画像の動的更新）
     currentDrawInterval = setInterval(() => {
       if (!virtualCameraEnabled) {
         clearInterval(currentDrawInterval);
         currentDrawInterval = null;
         return;
       }
-      if (img.complete) {
-        const scale = Math.min(width / img.width, height / img.height);
-        const x = (width - img.width * scale) / 2;
-        const y = (height - img.height * scale) / 2;
+
+      // currentVirtualImage が変更されていたら新しい画像を読み込む
+      if (currentVirtualImage && currentVirtualImage !== lastDrawnImageSrc) {
+        console.log('[VirtualCamera] Detected image change, updating canvas');
+        lastDrawnImageSrc = currentVirtualImage;
+        currentDrawingImage = new Image();
+        currentDrawingImage.src = currentVirtualImage;
+      }
+
+      if (currentDrawingImage && currentDrawingImage.complete && currentDrawingImage.naturalWidth > 0) {
+        const scale = Math.min(width / currentDrawingImage.width, height / currentDrawingImage.height);
+        const x = (width - currentDrawingImage.width * scale) / 2;
+        const y = (height - currentDrawingImage.height * scale) / 2;
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+        ctx.drawImage(currentDrawingImage, x, y, currentDrawingImage.width * scale, currentDrawingImage.height * scale);
       }
     }, 100); // 10fps で更新
 
@@ -146,19 +169,17 @@
   function enableVirtualCamera(imageType) {
     let imageData = null;
 
-    if (imageType === 'wave' && registeredImages.wave && registeredImages.wave.length > 0) {
+    // 登録済み画像から取得
+    if (GESTURE_TYPES.includes(imageType) && registeredImages[imageType] && registeredImages[imageType].length > 0) {
       // 配列からランダムに選択
-      imageData = getRandomImage(registeredImages.wave);
-    } else if (imageType === 'thumbsup' && registeredImages.thumbsup && registeredImages.thumbsup.length > 0) {
-      // 配列からランダムに選択
-      imageData = getRandomImage(registeredImages.thumbsup);
+      imageData = getRandomImage(registeredImages[imageType]);
     } else if (typeof imageType === 'string' && imageType.startsWith('data:')) {
       // 直接Base64データが渡された場合
       imageData = imageType;
     }
 
     // デフォルト画像にフォールバック
-    if (!imageData && (imageType === 'wave' || imageType === 'thumbsup')) {
+    if (!imageData && GESTURE_TYPES.includes(imageType)) {
       imageData = defaultImages[imageType];
       if (imageData) {
         console.log('[VirtualCamera] Using default image for type:', imageType);
@@ -169,6 +190,16 @@
       currentVirtualImage = imageData;
       virtualCameraEnabled = true;
       console.log('[VirtualCamera] Enabled with image type:', imageType);
+
+      // 既存のストリームがある場合は、新しい画像で再作成
+      if (virtualStream) {
+        console.log('[VirtualCamera] Updating existing stream with new image');
+        // 古いストリームを停止
+        virtualStream.getTracks().forEach(track => track.stop());
+        // 新しいストリームを作成（次回のgetUserMedia呼び出しで使用される）
+        virtualStream = createVirtualStream(currentVirtualImage);
+      }
+
       return true;
     }
 
@@ -196,14 +227,13 @@
    * 画像を登録（配列に追加）
    */
   function registerImage(type, imageData) {
-    if (type === 'wave') {
-      if (!registeredImages.wave) registeredImages.wave = [];
-      registeredImages.wave.push(imageData);
-    } else if (type === 'thumbsup') {
-      if (!registeredImages.thumbsup) registeredImages.thumbsup = [];
-      registeredImages.thumbsup.push(imageData);
+    if (GESTURE_TYPES.includes(type)) {
+      if (!registeredImages[type]) registeredImages[type] = [];
+      registeredImages[type].push(imageData);
+      console.log('[VirtualCamera] Image registered:', type, `(${registeredImages[type].length} total)`);
+    } else {
+      console.warn('[VirtualCamera] Unknown image type:', type);
     }
-    console.log('[VirtualCamera] Image registered:', type, `(${registeredImages[type]?.length || 0} total)`);
   }
 
   /**
@@ -229,11 +259,17 @@
         break;
 
       case 'GET_STATUS':
+        const imageCounts = {};
+        for (const type of GESTURE_TYPES) {
+          imageCounts[type] = registeredImages[type]?.length || 0;
+        }
         window.postMessage({
           source: 'remowork-virtual-camera-response',
           type: 'STATUS',
           payload: {
             enabled: virtualCameraEnabled,
+            imageCounts: imageCounts,
+            // 後方互換性
             waveCount: registeredImages.wave?.length || 0,
             thumbsupCount: registeredImages.thumbsup?.length || 0
           }
@@ -243,36 +279,39 @@
       case 'LOAD_IMAGES':
         // ストレージから画像を読み込む（配列形式）
         if (payload.images) {
-          // 旧形式（単一画像）との互換性
-          if (payload.images.wave && !Array.isArray(payload.images.wave)) {
-            registeredImages.wave = [payload.images.wave];
-          } else {
-            registeredImages.wave = payload.images.wave || [];
+          // 全ジェスチャータイプを読み込み
+          for (const type of GESTURE_TYPES) {
+            if (payload.images[type]) {
+              // 旧形式（単一画像）との互換性
+              if (!Array.isArray(payload.images[type])) {
+                registeredImages[type] = [payload.images[type]];
+              } else {
+                registeredImages[type] = payload.images[type];
+              }
+            } else {
+              registeredImages[type] = [];
+            }
           }
-          if (payload.images.thumbsup && !Array.isArray(payload.images.thumbsup)) {
-            registeredImages.thumbsup = [payload.images.thumbsup];
-          } else {
-            registeredImages.thumbsup = payload.images.thumbsup || [];
+          const counts = {};
+          for (const type of GESTURE_TYPES) {
+            counts[type] = registeredImages[type].length;
           }
-          console.log('[VirtualCamera] Images loaded from storage:', {
-            wave: registeredImages.wave.length,
-            thumbsup: registeredImages.thumbsup.length
-          });
+          console.log('[VirtualCamera] Images loaded from storage:', counts);
         }
         break;
 
       case 'SET_DEFAULT_IMAGES':
         // デフォルト画像を設定（Base64形式）
-        if (payload.wave) {
-          defaultImages.wave = payload.wave;
+        for (const type of GESTURE_TYPES) {
+          if (payload[type]) {
+            defaultImages[type] = payload[type];
+          }
         }
-        if (payload.thumbsup) {
-          defaultImages.thumbsup = payload.thumbsup;
+        const defaultSet = {};
+        for (const type of GESTURE_TYPES) {
+          defaultSet[type] = !!defaultImages[type];
         }
-        console.log('[VirtualCamera] Default images set:', {
-          wave: !!defaultImages.wave,
-          thumbsup: !!defaultImages.thumbsup
-        });
+        console.log('[VirtualCamera] Default images set:', defaultSet);
         break;
     }
   });
