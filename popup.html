@@ -18,6 +18,7 @@
       <button class="tab-btn" data-tab="handsign">👋 検出</button>
       <button class="tab-btn" data-tab="virtual-camera">📷 送信</button>
       <button class="tab-btn" data-tab="llm">🤖 AI</button>
+      <button class="tab-btn" data-tab="settings">⚙️</button>
     </nav>
 
     <!-- 音声設定タブ -->
@@ -333,8 +334,59 @@
       </section>
     </div>
 
+    <!-- 設定タブ -->
+    <div class="tab-content" id="tab-settings">
+      <div class="tab-header">
+        <span>⚙️ 設定</span>
+      </div>
+
+      <section class="handsign-section">
+        <label class="section-label">使用統計の送信</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="stats-enabled-toggle" checked>
+            匿名の使用統計を送信する
+          </label>
+        </div>
+        <p class="note">機能改善のため、匿名化された使用統計を収集します。個人を特定できる情報は含まれません。</p>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">収集される情報</label>
+        <div class="usage-info">
+          <p>• 機能の使用回数（ハンドサイン、表情分析など）</p>
+          <p>• 通話時間の合計（匿名）</p>
+          <p>• エラー発生回数</p>
+          <p>• 拡張機能のバージョン</p>
+        </div>
+        <p class="note" style="margin-top: 8px;">⚠️ 収集されない情報: 名前、会社名、通話内容、APIキーなど</p>
+      </section>
+
+      <section class="handsign-section">
+        <button class="btn btn-secondary" id="send-stats-now" style="width: 100%;">
+          📊 今すぐ統計を送信
+        </button>
+        <p class="note" id="stats-last-sent" style="margin-top: 8px;"></p>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">現在の統計</label>
+        <div class="stats-preview" id="stats-preview">
+          <p class="note">読み込み中...</p>
+        </div>
+      </section>
+
+      <section class="handsign-section">
+        <label class="section-label">バージョン情報</label>
+        <div class="usage-info">
+          <p><strong>Remowork Sound Changer</strong></p>
+          <p id="extension-version">v1.3.3</p>
+        </div>
+      </section>
+    </div>
+
     <footer class="footer">
-      <p class="version">v1.3.0</p>
+      <p class="version">v1.3.3</p>
     </footer>
   </div>
 

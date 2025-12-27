@@ -3,6 +3,9 @@
  * IndexedDB管理、設定の保存・読み込み
  */
 
+// 統計収集モジュールをインポート
+import './stats-collector.js';
+
 const DB_NAME = 'RemoworkSoundChangerDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'sounds';
@@ -513,6 +516,56 @@ async function handleMessage(message) {
         return { success: false, error: error.message };
       }
 
+    // 統計収集関連
+    case 'GET_STATS_SETTINGS':
+      if (globalThis.StatsCollector) {
+        const statsSettings = await globalThis.StatsCollector.getStatsSettings();
+        return { success: true, data: statsSettings };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'SAVE_STATS_SETTINGS':
+      if (globalThis.StatsCollector) {
+        await globalThis.StatsCollector.saveStatsSettings(message.settings);
+        return { success: true };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'RECORD_STAT':
+      if (globalThis.StatsCollector) {
+        await globalThis.StatsCollector.recordStat(message.category, message.key, message.increment || 1);
+        return { success: true };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'RECORD_CALL_DURATION':
+      if (globalThis.StatsCollector) {
+        await globalThis.StatsCollector.recordCallDuration(message.callType, message.durationSec);
+        return { success: true };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'RECORD_SCREEN_TIME':
+      if (globalThis.StatsCollector) {
+        await globalThis.StatsCollector.recordScreenTime(message.totalSec, message.activeSec);
+        return { success: true };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'SEND_STATS_NOW':
+      if (globalThis.StatsCollector) {
+        const result = await globalThis.StatsCollector.sendStatsToWebhook();
+        return result;
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
+    case 'GET_CURRENT_STATS':
+      if (globalThis.StatsCollector) {
+        const currentStats = await globalThis.StatsCollector.getStats();
+        return { success: true, data: currentStats };
+      }
+      return { success: false, error: 'StatsCollector not available' };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -717,9 +770,30 @@ async function sendToOffscreen(message) {
 }
 
 // 拡張機能インストール時
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   console.log('Remowork Sound Changer installed');
+
+  // 統計収集のアラームをセットアップ
+  if (globalThis.StatsCollector) {
+    await globalThis.StatsCollector.setupStatsAlarm();
+  }
 });
+
+// アラームハンドラー
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (globalThis.StatsCollector) {
+    globalThis.StatsCollector.handleStatsAlarm(alarm);
+  }
+});
+
+// Service Worker起動時にもアラームを確認
+(async () => {
+  // 既存のアラームがなければセットアップ
+  const existingAlarm = await chrome.alarms.get('sendStats');
+  if (!existingAlarm && globalThis.StatsCollector) {
+    await globalThis.StatsCollector.setupStatsAlarm();
+  }
+})();
 
 // ========================================
 // LLM設定と構造化機能

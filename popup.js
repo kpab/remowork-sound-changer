@@ -84,6 +84,12 @@ let whisperSettings = {
   language: 'ja'
 };
 
+// 統計設定
+let statsSettings = {
+  enabled: true,
+  lastSentAt: null
+};
+
 // LLMモデルの定義
 const LLM_MODELS = {
   gemini: [
@@ -199,6 +205,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // 統計設定を読み込む
+  if (isExtension) {
+    try {
+      const statsResponse = await sendMessage({ type: 'GET_STATS_SETTINGS' });
+      console.log('[Popup] statsResponse:', statsResponse);
+      if (statsResponse && statsResponse.success && statsResponse.data) {
+        statsSettings = { ...statsSettings, ...statsResponse.data };
+      }
+    } catch (error) {
+      console.error('[Popup] Error loading stats settings:', error);
+    }
+  }
+
   // UIを構築
   renderSoundList();
   setupEventListeners();
@@ -207,9 +226,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupVirtualCamera();
   setupLLMSettings();
   setupWhisperSettings();
+  setupStatsSettings();
 
   // 有効/無効トグルの初期状態
   document.getElementById('enabled-toggle').checked = settings.enabled !== false;
+
+  // ポップアップを開いた統計を記録
+  recordUiClick('popup_open');
 });
 
 /**
@@ -761,6 +784,15 @@ function setupTabNavigation() {
   const tabButtons = document.querySelectorAll('.tab-btn');
   const tabContents = document.querySelectorAll('.tab-content');
 
+  // タブ名と統計キーのマッピング
+  const tabStatKeys = {
+    'sound': 'tab_sound',
+    'handsign': 'tab_handSign',
+    'virtual-camera': 'tab_virtualCamera',
+    'llm': 'tab_llm',
+    'settings': 'tab_settings'
+  };
+
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const tabId = btn.dataset.tab;
@@ -777,6 +809,12 @@ function setupTabNavigation() {
           content.classList.remove('active');
         }
       });
+
+      // タブクリックを統計に記録
+      const statKey = tabStatKeys[tabId];
+      if (statKey) {
+        recordUiClick(statKey);
+      }
     });
   });
 }
@@ -1647,5 +1685,171 @@ async function testWhisperConnection(resultEl) {
   } catch (error) {
     resultEl.textContent = `❌ 接続エラー: ${error.message}`;
     resultEl.style.color = 'var(--danger-color)';
+  }
+}
+
+// ===============================================
+// 統計設定
+// ===============================================
+
+/**
+ * 統計設定をセットアップ
+ */
+async function setupStatsSettings() {
+  const enabledToggle = document.getElementById('stats-enabled-toggle');
+  const sendNowBtn = document.getElementById('send-stats-now');
+  const lastSentEl = document.getElementById('stats-last-sent');
+  const statsPreviewEl = document.getElementById('stats-preview');
+  const versionEl = document.getElementById('extension-version');
+
+  if (!enabledToggle) return;
+
+  // バージョン表示
+  if (versionEl && isExtension) {
+    const manifest = chrome.runtime.getManifest();
+    versionEl.textContent = `v${manifest.version}`;
+  }
+
+  // 初期値を設定
+  enabledToggle.checked = statsSettings.enabled !== false;
+
+  // 最終送信時刻を表示
+  if (lastSentEl && statsSettings.lastSentAt) {
+    const lastSent = new Date(statsSettings.lastSentAt);
+    lastSentEl.textContent = `最終送信: ${lastSent.toLocaleString('ja-JP')}`;
+  }
+
+  // 現在の統計を表示
+  await updateStatsPreview(statsPreviewEl);
+
+  // 有効/無効トグル
+  enabledToggle.addEventListener('change', async () => {
+    statsSettings.enabled = enabledToggle.checked;
+    await saveStatsSettings();
+    showToast(statsSettings.enabled ? '統計送信を有効化しました' : '統計送信を無効化しました');
+  });
+
+  // 今すぐ送信ボタン
+  if (sendNowBtn) {
+    sendNowBtn.addEventListener('click', async () => {
+      sendNowBtn.disabled = true;
+      sendNowBtn.textContent = '📊 送信中...';
+
+      try {
+        const response = await sendMessage({ type: 'SEND_STATS_NOW' });
+
+        if (response.success) {
+          showToast('統計を送信しました', 'success');
+          statsSettings.lastSentAt = new Date().toISOString();
+          if (lastSentEl) {
+            lastSentEl.textContent = `最終送信: ${new Date().toLocaleString('ja-JP')}`;
+          }
+          // 統計プレビューを更新
+          await updateStatsPreview(statsPreviewEl);
+        } else {
+          showToast(`送信失敗: ${response.error || response.reason}`, 'error');
+        }
+      } catch (error) {
+        showToast(`送信エラー: ${error.message}`, 'error');
+      } finally {
+        sendNowBtn.disabled = false;
+        sendNowBtn.textContent = '📊 今すぐ統計を送信';
+      }
+    });
+  }
+}
+
+/**
+ * 統計プレビューを更新
+ */
+async function updateStatsPreview(previewEl) {
+  if (!previewEl || !isExtension) return;
+
+  try {
+    const response = await sendMessage({ type: 'GET_CURRENT_STATS' });
+
+    if (response.success && response.data) {
+      const stats = response.data;
+      const html = `
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">ハンドサイン検出</span>
+            <span class="stat-value">${sumObject(stats.handSigns || {})}回</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">表情分析</span>
+            <span class="stat-value">${stats.expression?.analyzeCount || 0}回</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">外線通話</span>
+            <span class="stat-value">${stats.calls?.external?.count || 0}回</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">内線通話</span>
+            <span class="stat-value">${stats.calls?.internal?.count || 0}回</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">ポップアップ表示</span>
+            <span class="stat-value">${stats.uiClicks?.popup_open || 0}回</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">エラー</span>
+            <span class="stat-value">${sumObject(stats.errors || {})}回</span>
+          </div>
+        </div>
+      `;
+      previewEl.innerHTML = html;
+    } else {
+      previewEl.innerHTML = '<p class="note">統計データがありません</p>';
+    }
+  } catch (error) {
+    console.error('[Popup] Error loading stats:', error);
+    previewEl.innerHTML = '<p class="note">統計の読み込みに失敗しました</p>';
+  }
+}
+
+/**
+ * オブジェクトの値を合計
+ */
+function sumObject(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  return Object.values(obj).reduce((sum, val) => sum + (Number(val) || 0), 0);
+}
+
+/**
+ * 統計設定を保存
+ */
+async function saveStatsSettings() {
+  if (isExtension) {
+    try {
+      await sendMessage({ type: 'SAVE_STATS_SETTINGS', settings: statsSettings });
+      console.log('[Popup] Stats settings saved');
+    } catch (error) {
+      console.error('[Popup] Error saving stats settings:', error);
+    }
+  }
+}
+
+/**
+ * UIクリックを記録
+ */
+async function recordUiClick(key) {
+  if (!isExtension) return;
+  try {
+    await sendMessage({ type: 'RECORD_STAT', category: 'uiClicks', key: key });
+  } catch (error) {
+    console.error('[Popup] Error recording UI click:', error);
+  }
+}
+
+/**
+ * エラーを記録
+ */
+async function recordError(key) {
+  if (!isExtension) return;
+  try {
+    await sendMessage({ type: 'RECORD_STAT', category: 'errors', key: key });
+  } catch (error) {
+    console.error('[Popup] Error recording error:', error);
   }
 }
