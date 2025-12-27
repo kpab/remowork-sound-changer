@@ -5,8 +5,8 @@ description: |
   Manifest V3準拠、セキュリティ、パフォーマンス最適化。
   発動キーワード: Chrome拡張、extension、manifest、content script、background script
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash
-version: 1.2.0
-updated: 2025-12-25
+version: 1.3.0
+updated: 2025-12-27
 ---
 
 # Chrome Extension Development
@@ -113,6 +113,80 @@ function openDB() {
 - [ ] Service Worker の軽量化
 - [ ] 不要な権限の削除
 - [ ] ストレージ使用量の最適化
+
+## テストルール
+
+### ブラックボックス単体テスト（必須）
+
+**機能開発後は必ずブラックボックステストを作成する。**
+
+#### テスト方針
+- **ブラックボックステスト**: 内部実装を知らない前提で、入出力のみを検証
+- **単体テスト**: 各関数・モジュールを独立してテスト
+- テストフレームワーク: Jest または Vitest 推奨
+
+#### テストファイル構成
+```
+remowork-sound-changer/
+├── tests/                    # テストディレクトリ
+│   ├── unit/                 # 単体テスト
+│   │   ├── background.test.js
+│   │   ├── popup.test.js
+│   │   └── utils.test.js
+│   └── setup.js              # テストセットアップ
+├── jest.config.js            # Jest設定（使用時）
+└── vitest.config.js          # Vitest設定（使用時）
+```
+
+#### テスト作成ルール
+1. **関数ごとにテストを作成** - 公開関数は必ずテスト対象
+2. **境界値テスト** - 最小値、最大値、空配列、null等をテスト
+3. **異常系テスト** - エラーケース、例外処理をテスト
+4. **モック活用** - chrome.* API、外部依存はモック化
+
+#### テスト例
+```javascript
+// tests/unit/utils.test.js
+describe('formatVersion', () => {
+  // 正常系
+  test('バージョン文字列を正しくフォーマットする', () => {
+    expect(formatVersion('1.2.3')).toBe('v1.2.3');
+  });
+
+  // 境界値
+  test('空文字列の場合はデフォルト値を返す', () => {
+    expect(formatVersion('')).toBe('v0.0.0');
+  });
+
+  // 異常系
+  test('nullの場合は例外をスローする', () => {
+    expect(() => formatVersion(null)).toThrow();
+  });
+});
+```
+
+#### Chrome API モック
+```javascript
+// tests/setup.js
+global.chrome = {
+  runtime: {
+    sendMessage: jest.fn(),
+    onMessage: { addListener: jest.fn() },
+    getURL: jest.fn((path) => `chrome-extension://mock-id/${path}`)
+  },
+  storage: {
+    local: {
+      get: jest.fn(),
+      set: jest.fn()
+    }
+  }
+};
+```
+
+### テスト実行タイミング
+- **機能実装完了後** - 必ずテストを作成・実行
+- **コードレビュー前** - テストがパスすることを確認
+- **リリース前** - 全テストがパスすることを確認
 
 ## バージョニングルール
 
@@ -293,6 +367,7 @@ chrome-extension/
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3.0 | 2025-12-27 | ブラックボックス単体テストルール追加 |
 | 1.2.0 | 2025-12-25 | CHANGELOG.md更新ルール追加 |
 | 1.1.0 | 2025-12-25 | バージョニングルール追加、ZIP命名規則追加 |
 | 1.0.0 | 2024-12-24 | 初版作成 |
