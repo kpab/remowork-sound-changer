@@ -11,6 +11,9 @@ Remoworkの着信音・通知音をカスタマイズするChrome拡張機能。
 | code-review | 12視点マトリックスレビュー | `.claude/skills/code-review/SKILL.md` |
 | wishlist | ウィッシュリスト管理 | `.claude/skills/wishlist/SKILL.md` |
 | project-init | 新規プロジェクト作成 | `.claude/skills/project-init/SKILL.md` |
+| research | 調査・リサーチ（技術/市場/法的/セキュリティ） | `.claude/skills/research/SKILL.md` |
+| debugging | バグ調査・デバッグ | `.claude/skills/debugging/SKILL.md` |
+| spec-planning | 計画・仕様策定 | `.claude/skills/spec-planning/SKILL.md` |
 
 ## 関連ドキュメント
 
