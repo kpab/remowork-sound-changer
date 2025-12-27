@@ -2,15 +2,15 @@
 
 Remoworkの着信音・通知音をカスタマイズするChrome拡張機能。
 
-## スキル参照（親プロジェクトから継承）
+## スキル
 
 | スキル | 用途 | パス |
 |-------|------|------|
-| chrome-extension-dev | Chrome拡張開発ガイド | `../.claude/skills/chrome-extension-dev/SKILL.md` |
-| release | リリース手順 | `../.claude/skills/release/SKILL.md` |
-| code-review | 12視点マトリックスレビュー | `../.claude/skills/code-review/SKILL.md` |
-| wishlist | ウィッシュリスト管理 | `../.claude/skills/wishlist/SKILL.md` |
-| project-init | 新規プロジェクト作成 | `../.claude/skills/project-init/SKILL.md` |
+| chrome-extension-dev | Chrome拡張開発ガイド | `.claude/skills/chrome-extension-dev/SKILL.md` |
+| release | リリース手順 | `.claude/skills/release/SKILL.md` |
+| code-review | 12視点マトリックスレビュー | `.claude/skills/code-review/SKILL.md` |
+| wishlist | ウィッシュリスト管理 | `.claude/skills/wishlist/SKILL.md` |
+| project-init | 新規プロジェクト作成 | `.claude/skills/project-init/SKILL.md` |
 
 ## 関連ドキュメント
 
