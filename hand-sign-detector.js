@@ -1745,9 +1745,9 @@
         disableVirtualCamera();
         remainingSeconds = PHOTO_INTERVAL;
         updateTimerDisplay();
-      } else if (remainingSeconds <= 10) {
-        // 残り10秒以下の時のみリセット（再撮影などの通常サイクル外はスキップ）
-        console.log('[HandSign] My image changed within 10s margin, resetting timer');
+      } else if (remainingSeconds <= 1) {
+        // 残り1秒以下の時のみリセット（再撮影などの通常サイクル外はスキップ）
+        console.log('[HandSign] My image changed within 1s margin, resetting timer');
         resetTimer();
       }
     }

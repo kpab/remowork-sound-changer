@@ -131,44 +131,56 @@ function detectGesture(landmarks) {
   const thumbTip = landmarks[4];
   const thumbIP = landmarks[3];
   const thumbMCP = landmarks[2];
+  const thumbCMC = landmarks[1];
   const thumbExtended = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbIP.x - wrist.x);
-  const thumbUp = thumbTip.y < thumbMCP.y - 0.05;
+  // 親指が上向き判定を厳しく: 0.05 → 0.12（より明確に上を向いている必要あり）
+  const thumbUp = thumbTip.y < thumbMCP.y - 0.12;
+  // 追加: 親指が手のひらより明確に上にある
+  const thumbClearlyUp = thumbTip.y < wrist.y - 0.05;
 
   // 人差し指
   const indexTip = landmarks[8];
   const indexPIP = landmarks[6];
   const indexMCP = landmarks[5];
+  // 指が伸びている判定（Open Palm用）
   const indexExtended = indexTip.y < indexPIP.y - 0.02;
+  // 指が曲がっている判定（Thumbs Up用）: より厳しく
+  const indexBent = indexTip.y > indexPIP.y + 0.03;
 
   // 中指
   const middleTip = landmarks[12];
   const middlePIP = landmarks[10];
   const middleMCP = landmarks[9];
   const middleExtended = middleTip.y < middlePIP.y - 0.02;
+  const middleBent = middleTip.y > middlePIP.y + 0.03;
 
   // 薬指
   const ringTip = landmarks[16];
   const ringPIP = landmarks[14];
   const ringMCP = landmarks[13];
   const ringExtended = ringTip.y < ringPIP.y - 0.02;
+  const ringBent = ringTip.y > ringPIP.y + 0.03;
 
   // 小指
   const pinkyTip = landmarks[20];
   const pinkyPIP = landmarks[18];
   const pinkyMCP = landmarks[17];
   const pinkyExtended = pinkyTip.y < pinkyPIP.y - 0.02;
+  const pinkyBent = pinkyTip.y > pinkyPIP.y + 0.03;
 
   // 4本指の状態
   const fourFingersClosed = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
+  // 4本指が曲がっている（Thumbs Up用のより厳しい判定）
+  const fourFingersBent = indexBent && middleBent && ringBent && pinkyBent;
   const fourFingersOpen = indexExtended && middleExtended && ringExtended && pinkyExtended;
 
   // 親指が下を向いているか（y座標がMCPより下）
   const thumbDown = thumbTip.y > thumbMCP.y + 0.05;
 
   // === Thumbs Up 検出 ===
-  // 親指が立っていて、他の4本指が閉じている
-  if (thumbUp && thumbExtended && fourFingersClosed) {
-    console.log('[Offscreen] Detected: Thumbs Up');
+  // 親指が明確に立っていて、他の4本指が曲がっている
+  if (thumbUp && thumbClearlyUp && thumbExtended && fourFingersBent) {
+    console.log('[Offscreen] Detected: Thumbs Up (strict)');
     return { type: 'thumbsup', emoji: '👍', message: 'いつでもお話しいいですよ！！' };
   }
 
@@ -241,16 +253,20 @@ function detectHeadInHands(landmarks1, landmarks2) {
   const wrist1 = landmarks1[0];
   const wrist2 = landmarks2[0];
 
-  // 両手首のY座標が画像上部にある（0.0〜0.5の範囲、上が0）
-  const bothHandsHigh = wrist1.y < 0.5 && wrist2.y < 0.5;
+  // 両手首のY座標が画像上部〜中央付近にある（0.0〜0.65の範囲、上が0）
+  // 緩和: 0.5 → 0.65（顔より少し下でもOK）
+  const bothHandsHigh = wrist1.y < 0.65 && wrist2.y < 0.65;
 
   // 両手首のX座標が離れている（左右に広がっている）
-  const handsSpread = Math.abs(wrist1.x - wrist2.x) > 0.3;
+  // 緩和: 0.3 → 0.2（より近くてもOK）
+  const handsSpread = Math.abs(wrist1.x - wrist2.x) > 0.2;
 
   // 両手首が画像の両端にある（左手は左側、右手は右側）
-  const leftHand = wrist1.x < 0.5 ? landmarks1 : landmarks2;
-  const rightHand = wrist1.x < 0.5 ? landmarks2 : landmarks1;
-  const properPosition = leftHand[0].x < 0.5 && rightHand[0].x > 0.5;
+  // 緩和: 厳密な左右分離は不要、ある程度離れていればOK
+  const leftHand = wrist1.x < wrist2.x ? landmarks1 : landmarks2;
+  const rightHand = wrist1.x < wrist2.x ? landmarks2 : landmarks1;
+  // 左手が中央より左寄り、または右手が中央より右寄りであればOK
+  const properPosition = leftHand[0].x < 0.6 && rightHand[0].x > 0.4;
 
   // 指の状態をチェック（開いている or 閉じている、どちらでもOK）
   // 頭を抱える時は指が開いていることが多い

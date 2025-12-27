@@ -2,6 +2,20 @@
 
 Remoworkの着信音・通知音をカスタマイズするChrome拡張機能。
 
+## スキル参照
+
+| スキル | 用途 | パス |
+|-------|------|------|
+| chrome-extension-dev | Chrome拡張開発ガイド | `../.claude/skills/chrome-extension-dev/SKILL.md` |
+| wishlist | ウィッシュリスト管理 | `../.claude/skills/wishlist/SKILL.md` |
+
+## 関連ドキュメント
+
+| ドキュメント | 内容 |
+|-------------|------|
+| CHANGELOG.md | リリースノート |
+| WISHLIST.md | 機能要望・改善案リスト |
+
 ## 概要
 
 - **対象サイト**: https://stage.remowork.biz/, https://remowork.biz/
