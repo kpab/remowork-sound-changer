@@ -2,6 +2,23 @@
 
 Remowork Sound Changer のリリースノート
 
+## v1.4.0 - 録音のMP3ダウンロード対応とコード責務分離
+
+### 新機能
+- 録音のダウンロード形式をWebMからMP3に変更
+  - lamejs（MP3エンコーダー）を追加
+  - オフスクリーンドキュメント経由でMP3変換
+  - 128kbpsのMP3ファイルとして保存
+
+### 改善
+- コードの責務分離を実施
+  - `recorder/recordings-db.js` - IndexedDB管理を分離
+  - `recorder/mp3-converter.js` - MP3変換ロジックを分離
+  - `hand-sign-detector.js` を約155行削減
+
+### 削除
+- 未使用の `recorder.js` と `recorder.css` を削除
+
 ## v1.3.4 - ハンドサイン検出精度の調整
 ### 改善
 - サムズアップ(👍)の誤検出を大幅に削減

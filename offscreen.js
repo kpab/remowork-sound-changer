@@ -382,6 +382,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(getTranscript());
       return true;
 
+    // MP3変換
+    case 'CONVERT_TO_MP3':
+      convertToMp3(new Uint8Array(message.audioData).buffer).then(result => {
+        sendResponse(result);
+      });
+      return true;
+
     default:
       return false;
   }
@@ -801,6 +808,106 @@ async function analyzeExpression(imageData) {
     console.error('[Offscreen] Expression analysis error:', error);
     return { success: false, error: error.message };
   }
+}
+
+// =============================================
+// MP3変換機能 (lamejs)
+// =============================================
+
+/**
+ * WebM/Opus BlobをMP3に変換
+ * @param {ArrayBuffer} audioData - WebM形式の音声データ
+ * @returns {Object} 変換結果
+ */
+async function convertToMp3(audioData) {
+  try {
+    if (typeof lamejs === 'undefined') {
+      throw new Error('lamejs is not loaded');
+    }
+
+    console.log('[Offscreen] Converting to MP3, input size:', audioData.byteLength);
+
+    // Web Audio APIでデコード
+    const tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioBuffer = await tempAudioContext.decodeAudioData(audioData);
+
+    // サンプルレートとチャンネル数を取得
+    const sampleRate = audioBuffer.sampleRate;
+    const numberOfChannels = audioBuffer.numberOfChannels;
+
+    console.log(`[Offscreen] Audio: ${sampleRate}Hz, ${numberOfChannels}ch, ${audioBuffer.duration.toFixed(2)}s`);
+
+    // Float32Arrayを取得
+    const leftChannel = audioBuffer.getChannelData(0);
+    const rightChannel = numberOfChannels > 1 ? audioBuffer.getChannelData(1) : leftChannel;
+
+    // MP3エンコーダーを初期化（128kbps）
+    const mp3encoder = new lamejs.Mp3Encoder(numberOfChannels, sampleRate, 128);
+
+    // Float32 -> Int16 に変換
+    const leftSamples = floatTo16BitPCM(leftChannel);
+    const rightSamples = numberOfChannels > 1 ? floatTo16BitPCM(rightChannel) : leftSamples;
+
+    // MP3データを格納する配列
+    const mp3Data = [];
+
+    // エンコード（1152サンプルごとに処理）
+    const sampleBlockSize = 1152;
+    for (let i = 0; i < leftSamples.length; i += sampleBlockSize) {
+      const leftChunk = leftSamples.subarray(i, i + sampleBlockSize);
+      const rightChunk = rightSamples.subarray(i, i + sampleBlockSize);
+
+      let mp3buf;
+      if (numberOfChannels === 1) {
+        mp3buf = mp3encoder.encodeBuffer(leftChunk);
+      } else {
+        mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+      }
+
+      if (mp3buf.length > 0) {
+        mp3Data.push(new Uint8Array(mp3buf));
+      }
+    }
+
+    // 最終フラッシュ
+    const mp3buf = mp3encoder.flush();
+    if (mp3buf.length > 0) {
+      mp3Data.push(new Uint8Array(mp3buf));
+    }
+
+    tempAudioContext.close();
+
+    // MP3データを結合
+    const totalLength = mp3Data.reduce((acc, arr) => acc + arr.length, 0);
+    const mp3Array = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of mp3Data) {
+      mp3Array.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    console.log('[Offscreen] MP3 conversion complete, output size:', mp3Array.length);
+
+    return {
+      success: true,
+      mp3Data: Array.from(mp3Array)
+    };
+  } catch (error) {
+    console.error('[Offscreen] MP3 conversion error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Float32Array を Int16Array に変換
+ */
+function floatTo16BitPCM(float32Array) {
+  const int16Array = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return int16Array;
 }
 
 // 初期化を開始

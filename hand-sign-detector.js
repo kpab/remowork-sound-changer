@@ -2812,9 +2812,8 @@
   let audioDestination = null;
   let currentPlayingAudio = null;
   let currentPlayingId = null;
-  let recordingsDb = null;
-  const RECORDINGS_DB_NAME = 'remowork-recordings';
-  const RECORDINGS_STORE_NAME = 'recordings';
+  // Note: recordingsDb, RECORDINGS_DB_NAME, RECORDINGS_STORE_NAME は
+  // recorder/recordings-db.js に移動しました
 
   // 文字起こし関連（ページコンテキスト inject.js 経由）
   let transcriptText = '';
@@ -5321,115 +5320,8 @@
     return text;
   }
 
-  /**
-   * 録音用IndexedDBを初期化
-   */
-  async function initRecordingsDb() {
-    if (recordingsDb) return recordingsDb;
-
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(RECORDINGS_DB_NAME, 1);
-
-      request.onerror = () => {
-        console.error('[HandSign] Failed to open recordings DB:', request.error);
-        reject(request.error);
-      };
-
-      request.onsuccess = () => {
-        recordingsDb = request.result;
-        console.log('[HandSign] Recordings DB opened');
-        resolve(recordingsDb);
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains(RECORDINGS_STORE_NAME)) {
-          const store = db.createObjectStore(RECORDINGS_STORE_NAME, { keyPath: 'id' });
-          store.createIndex('date', 'date', { unique: false });
-          console.log('[HandSign] Recordings store created');
-        }
-      };
-    });
-  }
-
-  /**
-   * 録音データをIndexedDBに保存
-   */
-  async function saveRecordingToDb(recording) {
-    try {
-      const db = await initRecordingsDb();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
-        const request = store.put(recording);
-
-        request.onsuccess = () => {
-          console.log('[HandSign] Recording saved to DB:', recording.id);
-          resolve();
-        };
-        request.onerror = () => {
-          console.error('[HandSign] Failed to save recording:', request.error);
-          reject(request.error);
-        };
-      });
-    } catch (e) {
-      console.error('[HandSign] DB error:', e);
-    }
-  }
-
-  /**
-   * 録音データをIndexedDBから読み込み
-   */
-  async function loadRecordingsFromDb() {
-    try {
-      const db = await initRecordingsDb();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readonly');
-        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = () => {
-          const data = request.result || [];
-          // 新しい順にソート
-          data.sort((a, b) => b.id - a.id);
-          console.log('[HandSign] Loaded recordings from DB:', data.length);
-          resolve(data);
-        };
-        request.onerror = () => {
-          console.error('[HandSign] Failed to load recordings:', request.error);
-          reject(request.error);
-        };
-      });
-    } catch (e) {
-      console.error('[HandSign] DB error:', e);
-      return [];
-    }
-  }
-
-  /**
-   * 録音データをIndexedDBから削除
-   */
-  async function deleteRecordingFromDb(id) {
-    try {
-      const db = await initRecordingsDb();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction([RECORDINGS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(RECORDINGS_STORE_NAME);
-        const request = store.delete(id);
-
-        request.onsuccess = () => {
-          console.log('[HandSign] Recording deleted from DB:', id);
-          resolve();
-        };
-        request.onerror = () => {
-          console.error('[HandSign] Failed to delete recording:', request.error);
-          reject(request.error);
-        };
-      });
-    } catch (e) {
-      console.error('[HandSign] DB error:', e);
-    }
-  }
+  // Note: IndexedDB関連の関数（initRecordingsDb, saveRecordingToDb, loadRecordingsFromDb, deleteRecordingFromDb）は
+  // recorder/recordings-db.js に移動しました。window.RecordingsDB として利用可能です。
 
   /**
    * 録音データを保存
@@ -5456,8 +5348,8 @@
     recordings.unshift(recording);
     updateRecordingsList();
 
-    // IndexedDBに保存
-    await saveRecordingToDb(recording);
+    // IndexedDBに保存（RecordingsDBモジュール使用）
+    await window.RecordingsDB.save(recording);
   }
 
   /**
@@ -5612,20 +5504,54 @@
   }
 
   /**
-   * 録音をダウンロード
+   * 簡易トースト表示
    */
-  function downloadRecordingById(id) {
+  function showSimpleToast(message, type = 'info') {
+    const colors = {
+      info: '#2196F3',
+      success: '#4CAF50',
+      error: '#f44336'
+    };
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: ${colors[type] || colors.info};
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      z-index: 100001;
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
+  /**
+   * 録音をダウンロード（MP3に変換）- MP3Converterモジュール使用
+   */
+  async function downloadRecordingById(id) {
     const recording = recordings.find(r => r.id === id);
     if (!recording) return;
 
-    const url = URL.createObjectURL(recording.blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${recording.name}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      await window.MP3Converter.download(recording, (status, errorMsg) => {
+        if (status === 'converting') {
+          showSimpleToast('MP3に変換中...', 'info');
+        } else if (status === 'complete') {
+          showSimpleToast('MP3ダウンロード完了', 'success');
+        } else if (status === 'error') {
+          showSimpleToast('MP3変換に失敗: ' + errorMsg, 'error');
+        }
+      });
+    } catch (error) {
+      console.error('[HandSign] Download failed:', error);
+      showSimpleToast('MP3変換に失敗しました: ' + error.message, 'error');
+    }
   }
 
   /**
@@ -5645,39 +5571,25 @@
     recordings.splice(index, 1);
     updateRecordingsList();
 
-    // IndexedDBからも削除
-    await deleteRecordingFromDb(id);
+    // IndexedDBからも削除（RecordingsDBモジュール使用）
+    await window.RecordingsDB.delete(id);
   }
 
   /**
-   * 1ヶ月以上経過した録音を自動削除
-   */
-  async function cleanupOldRecordings() {
-    const oneMonthAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const oldRecordings = recordings.filter(r => r.id < oneMonthAgo);
-
-    if (oldRecordings.length === 0) return;
-
-    console.log(`[HandSign] Cleaning up ${oldRecordings.length} old recordings...`);
-
-    for (const recording of oldRecordings) {
-      await deleteRecordingFromDb(recording.id);
-    }
-
-    recordings = recordings.filter(r => r.id >= oneMonthAgo);
-    updateRecordingsList();
-    console.log('[HandSign] Old recordings cleaned up');
-  }
-
-  /**
-   * 録音履歴を読み込み
+   * 録音履歴を読み込み（RecordingsDBモジュール使用）
    */
   async function loadRecordings() {
     try {
-      recordings = await loadRecordingsFromDb();
+      recordings = await window.RecordingsDB.loadAll();
       updateRecordingsList();
       // 古い録音を自動削除
-      await cleanupOldRecordings();
+      const cleaned = await window.RecordingsDB.cleanup(30);
+      if (cleaned > 0) {
+        // 削除された分をローカル配列からも除去
+        const oneMonthAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+        recordings = recordings.filter(r => r.id >= oneMonthAgo);
+        updateRecordingsList();
+      }
     } catch (e) {
       console.error('[HandSign] Failed to load recordings:', e);
     }

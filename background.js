@@ -473,6 +473,14 @@ async function handleMessage(message) {
       const transcriptResult = await sendToOffscreen({ type: 'GET_TRANSCRIPT' });
       return transcriptResult;
 
+    // MP3変換
+    case 'CONVERT_TO_MP3':
+      const mp3Result = await sendToOffscreen({
+        type: 'CONVERT_TO_MP3',
+        audioData: message.audioData
+      });
+      return mp3Result;
+
     // LLM設定
     case 'GET_LLM_SETTINGS':
       const llmSettings = await getLLMSettings();
