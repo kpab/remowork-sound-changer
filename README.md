@@ -257,7 +257,7 @@ Remoworkの在席確認画像から、他のメンバーの手を検出して通
 
 MIT License
 
-© 2025 Thousand Wings. All rights reserved.
+© 2026 Thousand Wings. All rights reserved.
 
 ---
 
